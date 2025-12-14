@@ -1,15 +1,30 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Global } from '@nestjs/common';
 import { CryptoService } from '../crypto/crypto.service';
 import { Certificate } from '../types';
 
+let globalCAInstance: CertificateAuthorityService | null = null;
+
+@Global()
 @Injectable()
 export class CertificateAuthorityService {
   private rootCertificate: Certificate;
   private rootPrivateKey: string;
   private issuedCertificates: Map<string, string> = new Map();
+  private static instanceCount = 0;
 
   constructor(private cryptoService: CryptoService) {
-    this.initializeRootCA();
+    if (!globalCAInstance) {
+      this.initializeRootCA();
+      globalCAInstance = this;
+      CertificateAuthorityService.instanceCount = 1;
+    } else {
+      this.rootCertificate = globalCAInstance.rootCertificate;
+      this.rootPrivateKey = globalCAInstance.rootPrivateKey;
+      this.issuedCertificates = globalCAInstance.issuedCertificates;
+      CertificateAuthorityService.instanceCount++;
+      console.log(`Reusing existing Root CA (instance ${CertificateAuthorityService.instanceCount})`);
+      return;
+    }
   }
 
   private initializeRootCA(): void {
@@ -73,7 +88,6 @@ export class CertificateAuthorityService {
     const cert = this.cryptoService.parseCertificate(certJson);
     if (!cert) return false;
 
-    // verifying signature with root CA public key
     const dataToVerify = Buffer.from(cert.publicKey + cert.subject);
     return this.cryptoService.verifySignature(
       dataToVerify,

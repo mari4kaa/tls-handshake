@@ -14,6 +14,7 @@ import {
   NetworkPacket,
 } from '../types';
 import * as http from 'http';
+import { serializeBuffers, deserializeBuffers } from '../utils';
 
 interface PeerSession {
   sessionId: string;
@@ -176,7 +177,6 @@ export class NetworkNodeService {
       throw new HttpException('No handshake session', HttpStatus.BAD_REQUEST);
     }
 
-    // Complete handshake if needed
     if (!peerSession.sessionKeys) {
       this.handshakeService.completeHandshake(peerSession.sessionId);
       const session = this.handshakeService.getSession(peerSession.sessionId);
@@ -385,7 +385,8 @@ export class NetworkNodeService {
       return;
     }
 
-    const secureMessage: SecureMessage = JSON.parse(payload.toString());
+    const parsed = JSON.parse(payload.toString());
+    const secureMessage: SecureMessage = deserializeBuffers(parsed);
     
     const peerSession = this.peerSessions.get(packet.source);
     if (!peerSession || !peerSession.sessionKeys) {
@@ -439,6 +440,10 @@ export class NetworkNodeService {
     visitedNodes: string[],
     port: number
   ): Promise<void> {
+    if (visitedNodes.includes(this.nodeId)) {
+      return;
+    }
+    
     console.log(`[${this.nodeId}] Received broadcast from ${fromNode}: ${message.toString()}`);
 
     // Add self to visited
@@ -488,7 +493,9 @@ export class NetworkNodeService {
     data: any
   ): Promise<T> {
     return new Promise((resolve, reject) => {
-      const postData = JSON.stringify(data);
+      // Serialize buffers before sending
+      const serializedData = serializeBuffers(data);
+      const postData = JSON.stringify(serializedData);
 
       const options = {
         hostname: 'localhost',
@@ -511,7 +518,9 @@ export class NetworkNodeService {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(responseData);
-            resolve(parsed);
+            // Deserialize buffers in response
+            const deserialized = deserializeBuffers(parsed);
+            resolve(deserialized);
           } catch (error) {
             reject(new Error('Invalid JSON response'));
           }

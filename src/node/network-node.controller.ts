@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Param } from '@nestjs/common';
 import { NetworkNodeService } from './network-node.service';
+import { deserializeBuffers } from '../utils';
 
 @Controller()
 export class NetworkNodeController {
@@ -15,7 +16,8 @@ export class NetworkNodeController {
 
   @Post('handshake/client-hello')
   handleClientHello(@Body() body: any) {
-    const { fromNode, clientHello } = body;
+    const deserialized = deserializeBuffers(body);
+    const { fromNode, clientHello } = deserialized;
     const serverHello = this.nodeService.handleClientHello(
       fromNode,
       clientHello
@@ -25,7 +27,8 @@ export class NetworkNodeController {
 
   @Post('handshake/encrypted-premaster')
   handleEncryptedPremaster(@Body() body: any) {
-    const { fromNode, encryptedPremaster } = body;
+    const deserialized = deserializeBuffers(body);
+    const { fromNode, encryptedPremaster } = deserialized;
     const finished = this.nodeService.handleEncryptedPremaster(
       fromNode,
       encryptedPremaster
@@ -35,26 +38,29 @@ export class NetworkNodeController {
 
   @Post('handshake/finished')
   handleFinished(@Body() body: any) {
-    const { fromNode, finished } = body;
+    const deserialized = deserializeBuffers(body);
+    const { fromNode, finished } = deserialized;
     this.nodeService.handleFinishedMessage(fromNode, finished, false);
     return { success: true };
   }
 
   @Post('network/route')
   async handleRoute(@Body() body: any) {
-    const { packet } = body;
+    const deserialized = deserializeBuffers(body);
+    const { packet } = deserialized;
     this.nodeService.handleIncomingPacket(packet);
     return { success: true };
   }
 
   @Post('network/broadcast')
   async handleBroadcast(@Body() body: any) {
-    const { fromNode, message, visitedNodes } = body;
+    const deserialized = deserializeBuffers(body);
+    const { fromNode, message, visitedNodes } = deserialized;
     // Get port from environment or use default
     const port = parseInt(process.env.NODE_PORT || '3000');
     await this.nodeService.handleBroadcast(
       fromNode,
-      Buffer.from(message.data || message),
+      message,
       visitedNodes,
       port
     );
