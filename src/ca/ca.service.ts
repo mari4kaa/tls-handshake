@@ -27,6 +27,40 @@ export class CertificateAuthorityService {
     }
   }
 
+  getSharedCAKeys(): { publicKey: string; privateKey: string; subject: string } {
+    return {
+      publicKey: this.rootCertificate.publicKey,
+      privateKey: this.rootPrivateKey,
+      subject: this.rootCertificate.subject || 'CN=Root CA,O=TLS Simulation',
+    };
+  }
+
+  loadSharedCA(publicKey: string, privateKey: string, subject: string): void {
+    if (globalCAInstance && globalCAInstance !== this) {
+      throw new Error('Cannot load shared CA - CA already initialized');
+    }
+
+    this.rootPrivateKey = privateKey;
+    
+    const certJson = this.cryptoService.createSelfSignedCertificate(
+      publicKey,
+      privateKey,
+      subject
+    );
+
+    this.rootCertificate = {
+      publicKey,
+      privateKey,
+      pemCertificate: certJson,
+      issuedBy: 'Self',
+      subject,
+      validFrom: new Date(),
+      validTo: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
+    };
+
+    console.log('Shared Root CA loaded');
+  }
+
   private initializeRootCA(): void {
     const { publicKey, privateKey } = this.cryptoService.generateRSAKeyPair();
     this.rootPrivateKey = privateKey;
