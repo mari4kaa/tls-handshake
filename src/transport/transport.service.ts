@@ -13,6 +13,7 @@ interface Fragment {
 export class TransportService {
   private fragmentBuffer: Map<string, Fragment[]> = new Map();
   private readonly FRAGMENT_TIMEOUT = 30000; // 30 seconds
+  private readonly ESTIMATED_HEADER_SIZE = 200;
 
   fragmentMessage(
     source: string,
@@ -21,8 +22,7 @@ export class TransportService {
     mtu: number,
     sequenceNumber: number
   ): NetworkPacket[] {
-    const headerSize = 200;
-    const maxPayloadSize = mtu - headerSize;
+    const maxPayloadSize = mtu - this.ESTIMATED_HEADER_SIZE;
 
     if (payload.length <= maxPayloadSize) {
       return [

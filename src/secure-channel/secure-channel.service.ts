@@ -60,8 +60,9 @@ export class SecureChannelService {
     const expected = (this.sequenceNumbers.get(channelId) || 0) + 1;
     
     // Allow some window for out-of-order delivery
-    const isValid = receivedSequenceNumber >= expected - 10 && 
-                    receivedSequenceNumber <= expected + 10;
+    const SEQUENCE_WINDOW = 3;
+    const isValid = receivedSequenceNumber >= expected - SEQUENCE_WINDOW && 
+                    receivedSequenceNumber <= expected + SEQUENCE_WINDOW;
     
     if (isValid) {
       this.sequenceNumbers.set(channelId, Math.max(expected, receivedSequenceNumber));

@@ -104,8 +104,10 @@ export class NetworkNodeService {
     const cert = this.cryptoService.parseCertificate(serverHello.certificate);
     const serverPublicKey = cert.publicKey;
 
-    const sessionId = this.peerSessions.get(toNode)?.sessionId || 
-                      this.handshakeService.startClientHandshake(this.nodeId, toNode);
+    let sessionId = this.peerSessions.get(toNode)?.sessionId;
+    if (!sessionId) {
+      sessionId = this.handshakeService.startClientHandshake(this.nodeId, toNode);
+    }
 
     // Store randoms
     this.handshakeService.updateClientRandom(sessionId, clientRandom);
