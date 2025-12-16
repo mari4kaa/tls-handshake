@@ -96,4 +96,27 @@ export class NetworkNodeController {
     }));
     return { sessions: sessionData };
   }
+
+  @Post('test/initiate-handshake')
+  async testInitiateHandshake(@Body() body: { targetNode: string; targetPort: number }) {
+    await this.nodeService.initiateHandshake(body.targetNode, body.targetPort);
+    return { success: true, message: 'Handshake initiated' };
+  }
+
+  @Post('topology/configure')
+  async configureTopology(@Body() body: { nodes: string[]; links: any[] }) {
+    const routingService = this.nodeService['routingService'];
+    routingService.setTopology({
+      nodes: body.nodes,
+      links: body.links
+    });
+    return { success: true, message: 'Topology configured' };
+  }
+
+  @Get('routing/find-route')
+  async findRoute(@Body() body: { source: string; destination: string }) {
+    const routingService = this.nodeService['routingService'];
+    const route = routingService.findRoute(body.source, body.destination);
+    return route;
+  }
 }

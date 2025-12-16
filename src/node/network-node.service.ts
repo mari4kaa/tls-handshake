@@ -301,11 +301,15 @@ export class NetworkNodeService {
     const peerSession = this.peerSessions.get(targetNode);
     
     if (!peerSession || !peerSession.isHandshakeComplete || !peerSession.sessionKeys) {
-      throw new HttpException(
+        console.error(`[${this.nodeId}] ERROR: No secure channel established with ${targetNode}`);
+        console.error(`[${this.nodeId}] Handshake complete: ${!!peerSession?.isHandshakeComplete}, Session keys: ${!!peerSession?.sessionKeys}`);
+        throw new HttpException(
         'No secure channel established with target node',
         HttpStatus.BAD_REQUEST
       );
     }
+
+    console.log(`[${this.nodeId}] Sending secure message to ${targetNode} (${message.length} bytes)`);
 
     const messageBuffer = Buffer.from(message);
     const channelId = `${this.nodeId}-${targetNode}`;
