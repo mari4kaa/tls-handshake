@@ -43,9 +43,19 @@ export class NetworkNodeService {
     this.nodeId = nodeId;
     this.port = port;
 
+    console.log(`\n=== NODE INITIALIZATION: ${nodeId} ===`);
+    console.log(`Generating RSA-2048 key pair for node...`);
+
     const keyPair = this.cryptoService.generateRSAKeyPair();
     this.publicKey = keyPair.publicKey;
     this.privateKey = keyPair.privateKey;
+
+    console.log(`Node RSA Keys Generated:`);
+    console.log(`  - Public Key length: ${this.publicKey.length} characters`);
+    console.log(`  - Public Key: ${this.publicKey}`);
+    console.log(`  - Private Key length: ${this.privateKey.length} characters`);
+    console.log(`  - Private Key: ${this.privateKey}`);
+    console.log(`  - Key Size: RSA-2048 bits`);
 
     this.routingService.addNode(nodeId);
 
@@ -290,7 +300,10 @@ export class NetworkNodeService {
       );
     }
 
-    console.log(`Handshake completed: ${this.nodeId} <-> ${targetNode}`);
+    console.log(`\n=== HANDSHAKE STEP 7: Handshake Complete ===`);
+    console.log(`Secure channel established: ${this.nodeId} <-> ${targetNode}`);
+    console.log(`  - Session Keys: Generated and stored`);
+    console.log(`  - Encryption: AES-256-GCM`);
   }
 
   async sendSecureMessage(
@@ -384,46 +397,75 @@ export class NetworkNodeService {
   }
 
   handleIncomingPacket(packet: NetworkPacket): void {
+    console.log(`\n[${this.nodeId}] Receiving packet from ${packet.source}`);
+    console.log(`  - Fragment: ${packet.fragmentIndex !== undefined ? `${packet.fragmentIndex + 1}/${packet.totalFragments}` : 'No'}`);
+    console.log(`  - Payload size: ${packet.payload.length} bytes`);
+
     // Reassemble if fragmented
     const payload = this.transportService.reassembleFragments(packet);
     
     if (!payload) {
+      console.log(`  - Waiting for more fragments...`);
       return;
     }
+
+    console.log(`  - All fragments received, reassembling...`);
+    console.log(`  - Reassembled payload size: ${payload.length} bytes`);
 
     const parsed = JSON.parse(payload.toString());
     const secureMessage: SecureMessage = deserializeBuffers(parsed);
+
+    console.log(`  - Secure message parsed:`);
+    console.log(`    - Sequence number: ${secureMessage.sequenceNumber}`);
+    console.log(`    - Ciphertext length: ${secureMessage.ciphertext.length} bytes`);
+    console.log(`    - IV (hex): ${secureMessage.iv.toString('hex')}`);
+    console.log(`    - Auth tag (hex): ${secureMessage.authTag.toString('hex')}`);
     
     const peerSession = this.peerSessions.get(packet.source);
     if (!peerSession || !peerSession.sessionKeys) {
-      console.error('No session keys for peer');
+      console.error(`  ✗ ERROR: No session keys for peer ${packet.source}`);
+      console.error(`  - Cannot decrypt message without session keys`);
       return;
     }
 
+    console.log(`  - Decrypting message with session keys...`);
     // Decrypt message
     const decrypted = this.secureChannelService.decryptMessage(
       secureMessage,
       peerSession.sessionKeys
     );
 
-    console.log(`[${this.nodeId}] Received secure message from ${packet.source}: ${decrypted.toString()}`);
+    console.log(`[${this.nodeId}] ✓ Message received and decrypted from ${packet.source}:`);
+    console.log(`  Message content: ${decrypted.toString()}`);
+    console.log(`  Message length: ${decrypted.length} bytes`);
 
     // Store in message queue
     if (!this.messageQueue.has(packet.source)) {
       this.messageQueue.set(packet.source, []);
     }
     this.messageQueue.get(packet.source)!.push(decrypted);
+    console.log(`  Stored in message queue (total from ${packet.source}: ${this.messageQueue.get(packet.source)!.length})\n`);
   }
 
   async broadcastMessage(message: string, port: number): Promise<void> {
+    console.log('\n=== NETWORK BROADCAST: Initiating Broadcast ===');
+    console.log(`Broadcasting from: ${this.nodeId}`);
+    console.log(`Message: "${message}"`);
+    console.log(`Message length: ${message.length} bytes`);
+
     const visitedNodes = [this.nodeId];
     const targets = this.routingService.getBroadcastTargets(
       this.nodeId,
       visitedNodes
     );
+    
+    console.log(`Initial broadcast targets: ${targets.join(', ')}`);
+    console.log(`Visited nodes: ${visitedNodes.join(', ')}`);
+    console.log(`Algorithm: Spanning tree with loop prevention`);
 
     for (const target of targets) {
       try {
+        console.log(`\nSending broadcast to ${target}...`);
         await this.sendHttpRequest(
           target,
           port,
@@ -434,10 +476,12 @@ export class NetworkNodeService {
             visitedNodes,
           }
         );
+        console.log(`  ✓ Broadcast sent to ${target}`);
       } catch (error) {
-        console.error(`Failed to broadcast to ${target}:`, error.message);
+        console.error(`  ✗ Failed to broadcast to ${target}:`, error.message);
       }
     }
+    console.log(`\nBroadcast initiated from ${this.nodeId} to ${targets.length} direct neighbor(s)`);
   }
 
   async handleBroadcast(
@@ -446,14 +490,24 @@ export class NetworkNodeService {
     visitedNodes: string[],
     port: number
   ): Promise<void> {
+    console.log(`\n=== NETWORK BROADCAST: Received at ${this.nodeId} ===`);
+    console.log(`Source node: ${fromNode}`);
+    console.log(`Message: "${message.toString()}"`);
+    console.log(`Message length: ${message.length} bytes`);
+    console.log(`Visited nodes so far: ${visitedNodes.join(' → ')}`);
+    
     if (visitedNodes.includes(this.nodeId)) {
+      console.log(`⚠ Loop detected: ${this.nodeId} already in visited nodes`);
+      console.log(`  Dropping duplicate broadcast to prevent loop`);
       return;
     }
     
-    console.log(`[${this.nodeId}] Received broadcast from ${fromNode}: ${message.toString()}`);
+    console.log(`✓ Broadcast received successfully`);
+    console.log(`  Processing and forwarding...`);
 
     // Add self to visited
     const newVisited = [...visitedNodes, this.nodeId];
+    console.log(`Updated visited nodes: ${newVisited.join(' → ')}`);
 
     // Forward to neighbors
     const targets = this.routingService.getBroadcastTargets(
@@ -461,8 +515,16 @@ export class NetworkNodeService {
       newVisited
     );
 
+    if (targets.length === 0) {
+      console.log(`No further targets (leaf node or all neighbors visited)`);
+      console.log(`Broadcast propagation complete at this branch`);
+    } else {
+      console.log(`Forwarding broadcast to ${targets.length} neighbor(s): ${targets.join(', ')}`);
+    }
+
     for (const target of targets) {
       try {
+        console.log(`  Forwarding to ${target}...`);
         await this.sendHttpRequest(
           target,
           port,
@@ -473,10 +535,12 @@ export class NetworkNodeService {
             visitedNodes: newVisited,
           }
         );
+        console.log(`    ✓ Forwarded to ${target}`);
       } catch (error) {
-        console.error(`Failed to forward broadcast to ${target}:`, error.message);
+        console.error(`    ✗ Failed to forward broadcast to ${target}:`, error.message);
       }
     }
+    console.log(`Broadcast handling complete at ${this.nodeId}`);
   }
 
   getMessages(fromNode: string): string[] {

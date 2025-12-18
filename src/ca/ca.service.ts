@@ -98,36 +98,109 @@ export class CertificateAuthorityService {
     publicKey: string,
     subject: string
   ): string {
+    console.log('\n=== CERTIFICATE AUTHORITY: Signing Server Certificate ===');
+    console.log('Certificate Request:');
+    console.log(`  - Subject: ${subject}`);
+    console.log(`  - Public Key length: ${publicKey.length} characters`);
+    console.log(`  - Public Key: ${publicKey}`);
+    
+    const serialNumber = this.cryptoService.generateRandomBytes(16).toString('hex');
+    const validFrom = new Date();
+    const validTo = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    
+    console.log('\nCertificate Generation:');
+    console.log(`  - Serial Number: ${serialNumber}`);
+    console.log(`  - Issuer: ${this.rootCertificate.subject}`);
+    console.log(`  - Valid From: ${validFrom.toISOString()}`);
+    console.log(`  - Valid To: ${validTo.toISOString()}`);
+    console.log(`  - Validity Period: 1 year (365 days)`);
+    
+    const dataToSign = Buffer.from(publicKey + subject);
+    console.log('\nSigning Certificate:');
+    console.log(`  - Data length: ${dataToSign.length} bytes`);
+    console.log(`  - Signing with CA Private Key`);
+    console.log(`  - Signature Algorithm: SHA-256 with RSA`);
+    
+    const signature = this.cryptoService.signData(
+      dataToSign,
+      this.rootPrivateKey
+    );
+    
+    console.log(`  - Signature generated: ${signature}`);
+    console.log(`  - Signature length: ${signature.length} characters`);
+
     const cert = {
       version: 3,
-      serialNumber: this.cryptoService.generateRandomBytes(16).toString('hex'),
+      serialNumber,
       subject,
       issuer: this.rootCertificate.subject,
       publicKey,
-      validFrom: new Date(),
-      validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
-      signature: this.cryptoService.signData(
-        Buffer.from(publicKey + subject),
-        this.rootPrivateKey
-      ),
+      validFrom,
+      validTo, // 1 year
+      signature,
     };
 
     const certJson = JSON.stringify(cert);
     this.issuedCertificates.set(subject, certJson);
+
+    console.log('\nCertificate Signed Successfully:');
+    console.log(`  - Total certificates issued: ${this.issuedCertificates.size}`);
+    console.log(`  - Certificate JSON length: ${certJson.length} characters`);
+    console.log(`  - Certificate: ${certJson}`);
     
     return certJson;
   }
 
   verifyCertificate(certJson: string): boolean {
-    const cert = this.cryptoService.parseCertificate(certJson);
-    if (!cert) return false;
+    console.log('\n=== HANDSHAKE STEP 3: Certificate Verification with CA ===');
+    console.log('Certificate Verification Request:');
+    console.log(`  - Certificate JSON length: ${certJson.length} characters`);
+    console.log(`  - Certificate: ${certJson}`);
 
-    const dataToVerify = Buffer.from(cert.publicKey + cert.subject);
-    return this.cryptoService.verifySignature(
-      dataToVerify,
-      cert.signature,
-      this.rootCertificate.publicKey
-    );
+    const cert = this.cryptoService.parseCertificate(certJson);
+    if (!cert) {
+        console.log('Verification Result: FAILED ✗');
+        console.log('  - Reason: Certificate parsing failed');
+        return false;
+      }
+  
+      console.log('\nParsed Certificate:');
+      console.log(`  - Version: ${cert.version}`);
+      console.log(`  - Serial Number: ${cert.serialNumber}`);
+      console.log(`  - Subject: ${cert.subject}`);
+      console.log(`  - Issuer: ${cert.issuer}`);
+      console.log(`  - Valid From: ${cert.validFrom}`);
+      console.log(`  - Valid To: ${cert.validTo}`);
+      console.log(`  - Public Key: ${cert.publicKey}`);
+      console.log(`  - Signature: ${cert.signature}`);
+  
+      // Verify signature with root CA public key
+      console.log('\nSignature Verification:');
+      console.log(`  - Data to verify: Public Key + Subject`);
+      const dataToVerify = Buffer.from(cert.publicKey + cert.subject);
+      console.log(`  - Data length: ${dataToVerify.length} bytes`);
+      console.log(`  - Verifying with CA Public Key`);
+      console.log(`  - CA Public Key (first 100 chars): ${this.rootCertificate.publicKey.substring(0, 100)}...`);
+      console.log(`  - Algorithm: SHA-256 with RSA signature verification`);
+      
+      const isValid = this.cryptoService.verifySignature(
+        dataToVerify,
+        cert.signature,
+        this.rootCertificate.publicKey
+      );
+      
+      console.log('\nVerification Result:', isValid ? 'SUCCESS ✓' : 'FAILED ✗');
+      if (isValid) {
+        console.log('  - Certificate signature is valid');
+        console.log('  - Certificate was issued by trusted CA');
+        console.log('  - Certificate authenticity confirmed');
+      } else {
+        console.log('  - Certificate signature is invalid');
+        console.log('  - Certificate may be forged or corrupted');
+        console.log('  - Certificate NOT trusted');
+      }
+      
+      return isValid;
   }
 
   getIssuedCertificates(): string[] {

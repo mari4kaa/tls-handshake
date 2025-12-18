@@ -405,16 +405,5 @@ echo "Status: OPERATIONAL"
 sleep 2
 
 echo "Node logs available in: $LOG_DIR/"
-echo ""
-echo ""
-for i in "${!NODE_IDS[@]}"; do
-  NODE_ID=${NODE_IDS[$i]}
-  LOG_FILE="$LOG_DIR/${NODE_ID}.log"
-  if [ -f "$LOG_FILE" ]; then
-    echo "--- $NODE_ID ---"
-    tail -n 5 "$LOG_FILE" 2>/dev/null | sed 's/^/  /'
-    echo ""
-  fi
-done
 
 wait
