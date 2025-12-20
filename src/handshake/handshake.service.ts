@@ -1,298 +1,305 @@
-import { Injectable } from '@nestjs/common';
-import { CryptoService } from '../crypto/crypto.service';
-import { CertificateAuthorityService } from '../ca/ca.service';
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import {
-  ClientHello,
-  ServerHello,
-  EncryptedPremaster,
-  FinishedMessage,
-  HandshakeSession,
-  SessionKeys,
-} from '../types';
+  randomBytes,
+  publicEncrypt,
+  privateDecrypt,
+  createCipheriv,
+  createDecipheriv,
+  hkdfSync,
+} from 'crypto';
+import { CaClientService } from '../network-node/ca-client.service';
+
+interface HandshakeSession {
+  clientRandom: Buffer;
+  serverRandom?:  Buffer;
+  premasterSecret?: Buffer;
+  sessionKeys?:  SessionKeys;
+  certificate?: any;
+}
+
+interface SessionKeys {
+  encryptionKey: Buffer;
+  ivSeed: Buffer;
+  hmacKey: Buffer;
+}
 
 @Injectable()
 export class HandshakeService {
+  private readonly logger = new Logger('HandshakeService');
   private sessions: Map<string, HandshakeSession> = new Map();
 
   constructor(
-    private cryptoService: CryptoService,
-    private caService: CertificateAuthorityService
+    @Inject('NODE_ID') private readonly nodeId: string,
+    private readonly caClientService: CaClientService,
+    private readonly httpService: HttpService,
   ) {}
 
-  generateClientHello(): ClientHello {
-    const clientRandom = this.cryptoService.generateRandomBytes(32);
-    console.log('=== HANDSHAKE STEP 1: Client Hello Generation ===');
-    console.log('ClientHello generated:');
-    console.log(`  - Client Random (hex): ${clientRandom.toString('hex')}`);
-    console.log(`  - Client Random (base64): ${clientRandom.toString('base64')}`);
-    console.log(`  - Random bytes length: ${clientRandom.length} bytes`);
-    return {
-      clientRandom,
-    };
-  }
+  async initiateHandshake(targetNodeId: string, targetUrl:  string) {
+    this.logger.log(`\n=== INITIATING HANDSHAKE:  ${this.nodeId} -> ${targetNodeId} ===`);
 
-  generateServerHello(
-    nodeId: string,
-    publicKey: string,
-    privateKey: string
-  ): ServerHello {
-    console.log('=== HANDSHAKE STEP 2: Server Hello Generation ===');
-    const serverRandom = this.cryptoService.generateRandomBytes(32);
-    console.log('ServerHello components:');
-    console.log(`  - Server Random (hex): ${serverRandom.toString('hex')}`);
-    console.log(`  - Server Random (base64): ${serverRandom.toString('base64')}`);
-    console.log(`  - Random bytes length: ${serverRandom.length} bytes`);
+    const clientRandom = randomBytes(32);
+    this.logger.log('Step 1: ClientHello generated');
+    this.logger.log(`  Client Random: ${clientRandom. toString('hex')}`);
 
-    console.log('\nGenerating X.509-style SSL Certificate for server...');
-    console.log(`  - Node ID: ${nodeId}`);
-    console.log(`  - Server Public Key: ${publicKey}...`);
-    console.log(`  - Server Public Key length: ${publicKey.length} characters`);
+    const session: HandshakeSession = { clientRandom };
+    this.sessions.set(targetNodeId, session);
 
-    // sign certificate with CA
-    const certificate = this.caService.signServerCertificate(
-      publicKey,
-      `CN=${nodeId},O=TLS Node`
+    this.logger.log('\nStep 2: Sending ClientHello to server.. .');
+    const serverHelloResponse = await firstValueFrom(
+      this.httpService.post(`${targetUrl}/handshake/client-hello`, {
+        nodeId: this.nodeId,
+        clientRandom:  clientRandom.toString('base64'),
+      })
     );
 
-    console.log('\nCertificate Generated and Signed by CA:');
-    const certObj = JSON.parse(certificate);
-    console.log(`  - Version: ${certObj.version}`);
-    console.log(`  - Serial Number: ${certObj.serialNumber}`);
-    console.log(`  - Subject: ${certObj.subject}`);
-    console.log(`  - Issuer: ${certObj.issuer}`);
-    console.log(`  - Valid From: ${certObj.validFrom}`);
-    console.log(`  - Valid To: ${certObj.validTo}`);
-    console.log(`  - Public Key: ${certObj.publicKey}...`);
-    console.log(`  - Signature: ${certObj.signature}...`);
-    console.log(`  - Signature length: ${certObj.signature.length} characters`);
-    console.log(`  - Full certificate (JSON): ${certificate}...`);
+    const { serverRandom, certificate } = serverHelloResponse.data;
+    session.serverRandom = Buffer.from(serverRandom, 'base64');
+    session.certificate = certificate;
+
+    this.logger.log('  ServerHello received');
+    this.logger.log(`  Server Random: ${session.serverRandom.toString('hex')}`);
+    this.logger.log(`  Certificate: ${certificate.serialNumber}`);
+
+    this.logger.log('\nStep 3: Verifying server certificate with CA...');
+    const isValid = await this.caClientService.verifyCertificate(certificate);
+
+    if (!isValid) {
+      throw new Error('Certificate verification failed');
+    }
+
+    this.logger.log('  ✓ Certificate verified successfully');
+
+    this.logger.log('\nStep 4: Generating premaster secret...');
+    const premasterSecret = randomBytes(48);
+    session.premasterSecret = premasterSecret;
+
+    this.logger.log(`  Premaster Secret: ${premasterSecret.toString('hex')}`);
+    this.logger.log('  Encrypting with server public key (RSA-OAEP-SHA256)...');
+
+    const encryptedPremaster = publicEncrypt(
+      {
+        key: certificate.publicKey,
+        padding: 1,
+        oaepHash:  'sha256',
+      },
+      premasterSecret
+    );
+
+    this.logger.log(`  Encrypted size: ${encryptedPremaster. length} bytes`);
+
+    this.logger.log('\nSending encrypted premaster to server...');
+    await firstValueFrom(
+      this. httpService.post(`${targetUrl}/handshake/encrypted-premaster`, {
+        nodeId: this.nodeId,
+        encryptedPremaster:  encryptedPremaster.toString('base64'),
+      })
+    );
+
+    this.logger.log('\nStep 5: Deriving session keys (HKDF-SHA256)...');
+    const sessionKeys = this.deriveSessionKeys(
+      session.premasterSecret,
+      session.clientRandom,
+      session.serverRandom
+    );
+    session.sessionKeys = sessionKeys;
+
+    this.logger.log('  ✓ Session keys derived');
+    this.logger.log(`  Encryption Key: ${sessionKeys.encryptionKey.toString('hex')}`);
+    this.logger.log(`  IV Seed: ${sessionKeys.ivSeed.toString('hex')}`);
+
+    this.logger.log('\nStep 6: Sending encrypted "finished" message.. .');
+    const finishedMessage = this.encryptFinishedMessage(sessionKeys, 'client finished', 1);
+
+    await firstValueFrom(
+      this.httpService.post(`${targetUrl}/handshake/finished`, {
+        nodeId: this.nodeId,
+        ... finishedMessage,
+      })
+    );
+
+    this.logger.log('  ✓ Finished message sent');
+    this.logger.log('\n=== HANDSHAKE COMPLETE ===');
+    this.logger.log(`Secure channel established:  ${this.nodeId} <-> ${targetNodeId}`);
 
     return {
-      serverRandom,
-      certificate,
+      success: true,
+      sessionKeys,
+      targetNodeId,
     };
   }
 
-  encryptPremasterSecret(publicKey: string): {
-    premasterSecret: Buffer;
-    encrypted: EncryptedPremaster;
-  } {
-    console.log('=== HANDSHAKE STEP 4: Premaster Secret Encryption ===');
-    const premasterSecret = this.cryptoService.generateRandomBytes(48);
-    console.log('Premaster Secret Generation:');
-    console.log(`  - Premaster Secret (hex): ${premasterSecret.toString('hex')}`);
-    console.log(`  - Premaster Secret (base64): ${premasterSecret.toString('base64')}`);
-    console.log(`  - Premaster Secret length: ${premasterSecret.length} bytes`);
+  async handleClientHello(fromNodeId: string, clientRandom: string) {
+    this.logger.log(`\n=== HANDLING CLIENT HELLO from ${fromNodeId} ===`);
+
+    const clientRandomBuffer = Buffer.from(clientRandom, 'base64');
+    this.logger.log(`  Client Random: ${clientRandomBuffer.toString('hex')}`);
+
+    const serverRandom = randomBytes(32);
+    this.logger.log(`  Server Random: ${serverRandom.toString('hex')}`);
+
+    const myCertificate = this.caClientService.getMyCertificate();
     
-    console.log('\nRSA Encryption (RSA-OAEP-SHA256):');
-    console.log(`  - Public Key (from verified certificate) length: ${publicKey.length} characters`);
-    console.log(`  - Public Key: ${publicKey}`);
-    console.log(`  - Algorithm: RSA-OAEP with SHA-256`);
-    
-    const payload = this.cryptoService.rsaEncrypt(premasterSecret, publicKey);
-    console.log(`  - Encrypted payload length: ${payload.length} bytes`);
-    console.log(`  - Encrypted payload: ${payload.toString('base64')}...`);
+    if (!myCertificate) {
+      throw new Error('No certificate available.  CA client not initialized.');
+    }
+
+    this.logger.log(`  Sending certificate:  ${myCertificate.serialNumber}`);
+
+    const session: HandshakeSession = {
+      clientRandom:  clientRandomBuffer,
+      serverRandom: serverRandom,
+      certificate: myCertificate,
+    };
+    this.sessions.set(fromNodeId, session);
 
     return {
-      premasterSecret,
-      encrypted: { payload },
+      serverRandom: serverRandom.toString('base64'),
+      certificate:  myCertificate,
     };
   }
 
-  decryptPremasterSecret(
-    encrypted: EncryptedPremaster,
-    privateKey: string
-  ): Buffer {
-    console.log('=== HANDSHAKE: Server Decrypting Premaster Secret ===');
-    console.log('RSA Decryption (RSA-OAEP-SHA256):');
-    console.log(`  - Encrypted payload length: ${encrypted.payload.length} bytes`);
-    console.log(`  - Encrypted payload: ${encrypted.payload.toString('base64')}...`);
-    console.log(`  - Private Key length: ${privateKey.length} characters`);
-    console.log(`  - Algorithm: RSA-OAEP with SHA-256`);
+  async handleEncryptedPremaster(fromNodeId: string, encryptedPremaster: string) {
+    this.logger.log(`\n=== HANDLING ENCRYPTED PREMASTER from ${fromNodeId} ===`);
+
+    const session = this.sessions.get(fromNodeId);
+    if (!session) {
+      throw new Error('No handshake session found');
+    }
+
+    const encryptedBuffer = Buffer.from(encryptedPremaster, 'base64');
+    this.logger.log(`  Encrypted size: ${encryptedBuffer.length} bytes`);
+
+    const myPrivateKey = this.caClientService.getMyPrivateKey();
     
-    const decrypted = this.cryptoService.rsaDecrypt(encrypted.payload, privateKey);
-    console.log('\nDecryption Result:');
-    console.log(`  - Decrypted Premaster Secret (hex): ${decrypted.toString('hex')}`);
-    console.log(`  - Decrypted Premaster Secret (base64): ${decrypted.toString('base64')}`);
-    console.log(`  - Decrypted length: ${decrypted.length} bytes`);
-    
-    return decrypted;
+    if (!myPrivateKey) {
+      throw new Error('No private key available');
+    }
+
+    this.logger.log('  Decrypting with private key (RSA-OAEP-SHA256)...');
+
+    const premasterSecret = privateDecrypt(
+      {
+        key: myPrivateKey,
+        padding: 1,
+        oaepHash: 'sha256',
+      },
+      encryptedBuffer
+    );
+
+    session.premasterSecret = premasterSecret;
+    this.logger.log(`  Premaster Secret: ${premasterSecret.toString('hex')}`);
+
+    this.logger.log('\n  Deriving session keys (HKDF-SHA256)...');
+    const sessionKeys = this. deriveSessionKeys(
+      session.premasterSecret,
+      session.clientRandom,
+      session.serverRandom
+    );
+    session.sessionKeys = sessionKeys;
+
+    this.logger.log('  ✓ Session keys derived');
+
+    const finishedMessage = this.encryptFinishedMessage(sessionKeys, 'server finished', 0);
+
+    return finishedMessage;
   }
 
-  deriveSessionKeys(
+  async handleFinished(fromNodeId: string, finishedData: any) {
+    this.logger.log(`\n=== HANDLING FINISHED MESSAGE from ${fromNodeId} ===`);
+
+    const session = this.sessions. get(fromNodeId);
+    if (!session || !session.sessionKeys) {
+      throw new Error('No session keys available');
+    }
+
+    const ciphertext = Buffer.from(finishedData.ciphertext, 'base64');
+    const iv = Buffer.from(finishedData.iv, 'base64');
+    const authTag = Buffer.from(finishedData.authTag, 'base64');
+
+    this.logger.log(`  Ciphertext: ${ciphertext. toString('hex')}`);
+    this.logger.log(`  IV: ${iv.toString('hex')}`);
+
+    const decipher = createDecipheriv('aes-256-gcm', session.sessionKeys.encryptionKey, iv);
+    decipher.setAuthTag(authTag);
+
+    let plaintext = decipher.update(ciphertext);
+    plaintext = Buffer.concat([plaintext, decipher.final()]);
+
+    const message = plaintext.toString('utf8');
+    this.logger.log(`  Decrypted message: "${message}"`);
+
+    const expectedMessage = finishedData.sequenceNumber === 0 ? 'server finished' : 'client finished';
+
+    if (message !== expectedMessage) {
+      throw new Error('Finished message verification failed');
+    }
+
+    this.logger.log('  ✓ Finished message verified');
+    this.logger.log('\n=== HANDSHAKE COMPLETE ===');
+
+    return {
+      success: true,
+      message: 'Handshake completed',
+    };
+  }
+
+  private deriveSessionKeys(
     premasterSecret: Buffer,
     clientRandom: Buffer,
     serverRandom: Buffer
   ): SessionKeys {
-    console.log('=== HANDSHAKE STEP 5: Session Key Derivation (HKDF-SHA256) ===');
-    console.log('Input Materials:');
-    console.log(`  - Premaster Secret (hex): ${premasterSecret.toString('hex')}`);
-    console.log(`  - Client Random (hex): ${clientRandom.toString('hex')}`);
-    console.log(`  - Server Random (hex): ${serverRandom.toString('hex')}`);
-    console.log(`  - Key Derivation Function: HKDF-SHA256`);
-
-    const keys = this.cryptoService.deriveSessionKeys(
+    const seed = Buffer.concat([clientRandom, serverRandom]);
+  
+    // hkdfSync returns ArrayBuffer, convert to Buffer
+    const keyMaterialArrayBuffer = hkdfSync(
+      'sha256',
       premasterSecret,
-      clientRandom,
-      serverRandom
+      seed,
+      Buffer.from('TLS 1.2 key expansion'),
+      80
     );
+  
+    // Convert ArrayBuffer to Buffer
+    const keyMaterial = Buffer.from(keyMaterialArrayBuffer);
+  
+    return {
+      encryptionKey: keyMaterial. subarray(0, 32),   // Now this works
+      ivSeed: keyMaterial.subarray(32, 48),
+      hmacKey: keyMaterial.subarray(48, 80),
+    };
+  }
 
-    console.log('\nDerived Session Keys:');
-    console.log(`  - Encryption Key (AES-256, hex): ${keys.encryptionKey.toString('hex')}`);
-    console.log(`  - Encryption Key length: ${keys.encryptionKey.length} bytes (${keys.encryptionKey.length * 8} bits)`);
-    console.log(`  - IV Seed (hex): ${keys.ivSeed.toString('hex')}`);
-    console.log(`  - IV Seed length: ${keys.ivSeed.length} bytes`);
-    console.log(`  - HMAC Key (hex): ${keys.hmacKey.toString('hex')}`);
-    console.log(`  - HMAC Key length: ${keys.hmacKey.length} bytes (${keys.hmacKey.length * 8} bits)`);
-    console.log(`  - Total key material: ${keys.encryptionKey.length + keys.ivSeed.length + keys.hmacKey.length} bytes`);
+  private encryptFinishedMessage(sessionKeys: SessionKeys, message: string, sequenceNumber: number) {
+    const iv = Buffer.alloc(16);
+    sessionKeys.ivSeed.copy(iv);
+    iv.writeUInt32BE(sequenceNumber, 12);
+
+    const cipher = createCipheriv('aes-256-gcm', sessionKeys.encryptionKey, iv);
+
+    let ciphertext = cipher.update(message, 'utf8');
+    ciphertext = Buffer. concat([ciphertext, cipher. final()]);
+
+    const authTag = cipher.getAuthTag();
+
+    this.logger.log(`  Message: "${message}"`);
+    this.logger.log(`  Ciphertext: ${ciphertext. toString('hex')}`);
+    this.logger.log(`  Auth Tag: ${authTag.toString('hex')}`);
 
     return {
-      encryptionKey: keys.encryptionKey,
-      ivSeed: keys.ivSeed,
-      hmacKey: keys.hmacKey,
+      ciphertext:  ciphertext.toString('base64'),
+      iv: iv.toString('base64'),
+      authTag: authTag.toString('base64'),
+      sequenceNumber,
     };
   }
 
-  createFinishedMessage(
-    message: string,
-    sessionKeys: SessionKeys,
-    sequenceNumber: number
-  ): FinishedMessage {
-    console.log('=== HANDSHAKE STEP 6: Creating Finished Message (AES-256-GCM) ===');
-    console.log('Message Encryption:');
-    console.log(`  - Plaintext message: "${message}"`);
-    console.log(`  - Plaintext length: ${message.length} characters`);
-    console.log(`  - Sequence number: ${sequenceNumber}`);
-    
-    const plaintext = Buffer.from(message);
-    const iv = this.cryptoService.generateIV(sessionKeys.ivSeed, sequenceNumber);
-    console.log(`  - Generated IV (hex): ${iv.toString('hex')}`);
-    console.log(`  - IV length: ${iv.length} bytes`);
-    console.log(`  - Using encryption key: ${sessionKeys.encryptionKey.toString('hex')}...`);
-    
-    const { ciphertext, authTag } = this.cryptoService.aesEncrypt(
-      plaintext,
-      sessionKeys.encryptionKey,
-      iv
-    );
-
-    console.log('\nEncryption Result:');
-    console.log(`  - Ciphertext (hex): ${ciphertext.toString('hex')}`);
-    console.log(`  - Ciphertext (base64): ${ciphertext.toString('base64')}`);
-    console.log(`  - Ciphertext length: ${ciphertext.length} bytes`);
-    console.log(`  - Auth Tag (hex): ${authTag.toString('hex')}`);
-    console.log(`  - Auth Tag length: ${authTag.length} bytes`);
-    console.log(`  - Algorithm: AES-256-GCM with authentication`);
-
-    return {
-      encryptedPayload: ciphertext,
-      iv,
-      authTag,
-    };
+  getSession(nodeId: string): HandshakeSession | undefined {
+    return this. sessions.get(nodeId);
   }
 
-  verifyFinishedMessage(
-    finished: FinishedMessage,
-    sessionKeys: SessionKeys,
-    expectedMessage: string
-  ): boolean {
-    console.log('=== HANDSHAKE STEP 6: Verifying Finished Message ===');
-    console.log('Decryption and Verification:');
-    console.log(`  - Ciphertext (hex): ${finished.encryptedPayload.toString('hex')}`);
-    console.log(`  - Ciphertext length: ${finished.encryptedPayload.length} bytes`);
-    console.log(`  - IV (hex): ${finished.iv.toString('hex')}`);
-    console.log(`  - Auth Tag (hex): ${finished.authTag.toString('hex')}`);
-    console.log(`  - Expected message: "${expectedMessage}"`);
-
-    try {
-      const decrypted = this.cryptoService.aesDecrypt(
-        finished.encryptedPayload,
-        sessionKeys.encryptionKey,
-        finished.iv,
-        finished.authTag
-      );
-
-      const decryptedText = decrypted.toString();
-      const isValid = decryptedText === expectedMessage;
-      
-      console.log('\nVerification Result:');
-      console.log(`  - Decrypted message: "${decryptedText}"`);
-      console.log(`  - Expected message: "${expectedMessage}"`);
-      console.log(`  - Messages match: ${isValid ? 'YES ✓' : 'NO ✗'}`);
-      console.log(`  - Auth tag verified: ${isValid ? 'YES ✓' : 'NO ✗'}`);
-      console.log(`  - Handshake verification: ${isValid ? 'SUCCESS ✓' : 'FAILED ✗'}`);
-
-      return isValid;
-    } catch (error) {
-      console.log('\nVerification Result: FAILED ✗');
-      console.log(`  - Error: ${error.message}`);
-      console.log(`  - Authentication tag validation failed or decryption error`);
-      return false;
-    }
-  }
-
-  startClientHandshake(localNodeId: string, remoteNodeId: string): string {
-    const sessionId = `${localNodeId}-${remoteNodeId}-${Date.now()}`;
-    const session: HandshakeSession = {
-      nodeId: remoteNodeId,
-      isComplete: false,
-      isClient: true,
-    };
-
-    this.sessions.set(sessionId, session);
-    return sessionId;
-  }
-
-  startServerHandshake(localNodeId: string, remoteNodeId: string): string {
-    const sessionId = `${localNodeId}-${remoteNodeId}-${Date.now()}`;
-    const session: HandshakeSession = {
-      nodeId: remoteNodeId,
-      isComplete: false,
-      isClient: false,
-    };
-
-    this.sessions.set(sessionId, session);
-    return sessionId;
-  }
-
-  updateClientRandom(sessionId: string, clientRandom: Buffer): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.clientRandom = clientRandom;
-    }
-  }
-
-  updateServerRandom(sessionId: string, serverRandom: Buffer): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.serverRandom = serverRandom;
-    }
-  }
-
-  updatePremasterSecret(sessionId: string, premasterSecret: Buffer): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.premasterSecret = premasterSecret;
-    }
-  }
-
-  completeHandshake(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session && session.clientRandom && session.serverRandom && session.premasterSecret) {
-      session.sessionKeys = this.deriveSessionKeys(
-        session.premasterSecret,
-        session.clientRandom,
-        session.serverRandom
-      );
-      session.isComplete = true;
-    }
-  }
-
-  getSession(sessionId: string): HandshakeSession | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  verifyCertificate(certificate: string): boolean {
-    return this.caService.verifyCertificate(certificate);
+  getSessionKeys(nodeId: string): SessionKeys | undefined {
+    return this.sessions.get(nodeId)?.sessionKeys;
   }
 }

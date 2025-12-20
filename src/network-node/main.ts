@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NetworkNodeModule } from './network-node.module';
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
-import { CaClientService } from '../ca-server/services/ca-client.service';
+import { CaClientService } from './ca-client.service';
 
 async function bootstrapNetworkNode() {
   const nodeId = process.env.NODE_ID || 'node1';
@@ -15,7 +15,6 @@ async function bootstrapNetworkNode() {
   console.log(`║     Network Node:  ${nodeId. padEnd(39)} ║`);
   console.log(`╚════════════════════════════════════════════════════════════╝\n`);
   
-  // Створення додатку
   const app = await NestFactory.create(NetworkNodeModule, {
     logger:  ['log', 'error', 'warn'],
   });
@@ -31,17 +30,14 @@ async function bootstrapNetworkNode() {
   logger.log(`✓ Node ${nodeId} HTTP server started on port ${nodePort}`);
   logger.log('');
   
-  // Чекаємо доступності CA
   logger.log(`Connecting to Certificate Authority... `);
   logger.log(`  CA URL: ${caUrl}`);
   logger.log('');
   
   await waitForCA(caUrl, logger);
   
-  // Отримання CA клієнта
   const caClient = app.get(CaClientService);
   
-  // Ініціалізація CA клієнта (завантаження публічного ключа і отримання сертифікату)
   logger.log('Initializing CA client...');
   logger.log('');
   
@@ -74,9 +70,7 @@ async function waitForCA(caUrl: string, logger: Logger): Promise<void> {
         return;
       }
     } catch (error) {
-      logger.warn(
-        `Waiting for CA...  (attempt ${attempt}/${maxAttempts})`
-      );
+      logger.warn(`Waiting for CA...  (attempt ${attempt}/${maxAttempts})`);
       
       if (attempt < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -84,7 +78,7 @@ async function waitForCA(caUrl: string, logger: Logger): Promise<void> {
     }
   }
   
-  throw new Error('Certificate Authority is not available after 30 attempts');
+  throw new Error('Certificate Authority not available');
 }
 
 bootstrapNetworkNode().catch(err => {

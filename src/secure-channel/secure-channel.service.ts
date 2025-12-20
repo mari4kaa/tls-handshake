@@ -1,104 +1,212 @@
-import { Injectable } from '@nestjs/common';
-import { CryptoService } from '../crypto/crypto.service';
-import { SecureMessage, SessionKeys } from '../types';
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { createCipheriv, createDecipheriv } from 'crypto';
+import { HandshakeService } from '../handshake/handshake.service';
+
+interface SecureSession {
+  nodeId: string;
+  keys: SessionKeys;
+  sequenceNumber: number;
+  lastReceivedSeqNum: number;
+  establishedAt: Date;
+}
+
+interface SessionKeys {
+  encryptionKey: Buffer;
+  ivSeed: Buffer;
+  hmacKey: Buffer;
+}
+
+export interface Message {
+  content: string;
+  timestamp: number;
+  sequenceNumber: number;
+}
 
 @Injectable()
 export class SecureChannelService {
-  private sequenceNumbers: Map<string, number> = new Map();
+  private readonly logger = new Logger('SecureChannelService');
+  private sessions:  Map<string, SecureSession> = new Map();
+  private messageQueues: Map<string, Message[]> = new Map();
 
-  constructor(private cryptoService: CryptoService) {}
+  constructor(
+    @Inject('NODE_ID') private readonly nodeId: string,
+    private readonly handshakeService: HandshakeService,
+    private readonly httpService: HttpService,
+  ) {}
 
-  encryptMessage(
-    message: Buffer,
-    sessionKeys: SessionKeys,
-    channelId: string
-  ): SecureMessage {
-    console.log('\n=== SECURE CHANNEL: Encrypting Message (AES-256-GCM) ===');
-    const sequenceNumber = this.getNextSequenceNumber(channelId);
-    console.log('Message Encryption:');
-    console.log(`  - Channel ID: ${channelId}`);
-    console.log(`  - Sequence Number: ${sequenceNumber}`);
-    console.log(`  - Plaintext length: ${message.length} bytes`);
-    console.log(`  - Plaintext (first 100 bytes): ${message.toString('utf8', 0, Math.min(100, message.length))}`);
-    
-    const iv = this.cryptoService.generateIV(sessionKeys.ivSeed, sequenceNumber);
-    console.log(`  - Generated IV (hex): ${iv.toString('hex')}`);
-    console.log(`  - IV Seed (hex): ${sessionKeys.ivSeed.toString('hex')}`);
-    console.log(`  - Encryption Key: ${sessionKeys.encryptionKey.toString('hex')}`);
-    
-    const { ciphertext, authTag } = this.cryptoService.aesEncrypt(
-      message,
-      sessionKeys.encryptionKey,
-      iv
-    );
+  async sendSecureMessage(toNodeId: string, message: string) {
+    this.logger.log(`\n=== SENDING SECURE MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`);
+    this.logger.log(`  Message: "${message}"`);
+    this.logger.log(`  Length: ${message.length} bytes`);
 
-    console.log('\nEncryption Result:');
-    console.log(`  - Ciphertext length: ${ciphertext.length} bytes`);
-    console.log(`  - Ciphertext: ${ciphertext.toString('hex')}`);
-    console.log(`  - Auth Tag (hex): ${authTag.toString('hex')}`);
-    console.log(`  - Algorithm: AES-256-GCM with authenticated encryption`);
+    let session = this.sessions.get(toNodeId);
 
-    return {
-      sequenceNumber,
-      iv,
-      ciphertext,
-      authTag,
-    };
-  }
+    if (!session) {
+      const sessionKeys = this.handshakeService.getSessionKeys(toNodeId);
 
-  decryptMessage(
-    secureMessage: SecureMessage,
-    sessionKeys: SessionKeys
-  ): Buffer {
-    console.log('\n=== SECURE CHANNEL: Decrypting Message (AES-256-GCM) ===');
-    console.log('Message Decryption:');
-    console.log(`  - Sequence Number: ${secureMessage.sequenceNumber}`);
-    console.log(`  - Ciphertext length: ${secureMessage.ciphertext.length} bytes`);
-    console.log(`  - Ciphertext: ${secureMessage.ciphertext.toString('hex')}`);
-    console.log(`  - IV (hex): ${secureMessage.iv.toString('hex')}`);
-    console.log(`  - Auth Tag (hex): ${secureMessage.authTag.toString('hex')}`);
-    console.log(`  - Decryption Key: ${sessionKeys.encryptionKey.toString('hex')}`);
-    
-    const decrypted = this.cryptoService.aesDecrypt(
-      secureMessage.ciphertext,
-      sessionKeys.encryptionKey,
-      secureMessage.iv,
-      secureMessage.authTag
-    );
+      if (!sessionKeys) {
+        throw new Error(`No secure session established with ${toNodeId}.  Perform handshake first.`);
+      }
 
-    console.log('\nDecryption Result:');
-    console.log(`  - Plaintext length: ${decrypted.length} bytes`);
-    console.log(`  - Plaintext: ${decrypted.toString('utf8', 0, Math.min(200, decrypted.length))}`);
-    
-    return decrypted;
-  }
+      session = {
+        nodeId: toNodeId,
+        keys: sessionKeys,
+        sequenceNumber: 0,
+        lastReceivedSeqNum: 0,
+        establishedAt: new Date(),
+      };
 
-  private getNextSequenceNumber(channelId: string): number {
-    const current = this.sequenceNumbers.get(channelId) || 0;
-    const next = current + 1;
-    this.sequenceNumbers.set(channelId, next);
-    return next;
-  }
-
-  resetSequenceNumber(channelId: string): void {
-    this.sequenceNumbers.set(channelId, 0);
-  }
-
-  validateSequenceNumber(
-    channelId: string,
-    receivedSequenceNumber: number
-  ): boolean {
-    const expected = (this.sequenceNumbers.get(channelId) || 0) + 1;
-    
-    // Allow some window for out-of-order delivery
-    const SEQUENCE_WINDOW = 3;
-    const isValid = receivedSequenceNumber >= expected - SEQUENCE_WINDOW && 
-                    receivedSequenceNumber <= expected + SEQUENCE_WINDOW;
-    
-    if (isValid) {
-      this.sequenceNumbers.set(channelId, Math.max(expected, receivedSequenceNumber));
+      this.sessions.set(toNodeId, session);
     }
-    
-    return isValid;
+
+    session.sequenceNumber++;
+
+    const iv = Buffer.alloc(16);
+    session.keys.ivSeed. copy(iv);
+    iv.writeUInt32BE(session. sequenceNumber, 12);
+
+    this.logger.log(`  Sequence Number: ${session.sequenceNumber}`);
+    this.logger.log(`  IV: ${iv.toString('hex')}`);
+
+    const cipher = createCipheriv('aes-256-gcm', session. keys.encryptionKey, iv);
+
+    let ciphertext = cipher.update(message, 'utf8');
+    ciphertext = Buffer.concat([ciphertext, cipher.final()]);
+
+    const authTag = cipher.getAuthTag();
+
+    this.logger.log(`  Ciphertext: ${ciphertext.toString('hex').substring(0, 50)}...`);
+    this.logger.log(`  Auth Tag: ${authTag.toString('hex')}`);
+    this.logger.log('  ✓ Message encrypted (AES-256-GCM)');
+
+    const encryptedMessage = {
+      type: 'secure-message',
+      fromNodeId: this.nodeId,
+      toNodeId:  toNodeId,
+      sequenceNumber: session.sequenceNumber,
+      ciphertext: ciphertext.toString('base64'),
+      iv: iv.toString('base64'),
+      authTag: authTag. toString('base64'),
+      timestamp: Date.now(),
+    };
+
+    try {
+      await firstValueFrom(
+        this.httpService.post(`http://localhost:${this.getPortForNode(toNodeId)}/secure/receive`, encryptedMessage)
+      );
+
+      this.logger.log('  ✓ Message sent successfully');
+
+      return {
+        success: true,
+        sequenceNumber: session.sequenceNumber,
+      };
+    } catch (error) {
+      this.logger.error(`  ✗ Failed to send message: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async receiveSecureMessage(packet: any) {
+    this.logger.log(`\n=== RECEIVING SECURE MESSAGE from ${packet.fromNodeId} ===`);
+
+    const fromNodeId = packet.fromNodeId;
+
+    let session = this.sessions.get(fromNodeId);
+
+    if (!session) {
+      const sessionKeys = this.handshakeService.getSessionKeys(fromNodeId);
+
+      if (!sessionKeys) {
+        throw new Error(`No secure session with ${fromNodeId}`);
+      }
+
+      session = {
+        nodeId: fromNodeId,
+        keys: sessionKeys,
+        sequenceNumber: 0,
+        lastReceivedSeqNum: 0,
+        establishedAt: new Date(),
+      };
+
+      this.sessions.set(fromNodeId, session);
+    }
+
+    if (packet.sequenceNumber <= session.lastReceivedSeqNum) {
+      this.logger.warn('  ✗ Invalid sequence number - possible replay attack');
+      throw new Error('Invalid sequence number');
+    }
+
+    const ciphertext = Buffer.from(packet.ciphertext, 'base64');
+    const iv = Buffer.from(packet.iv, 'base64');
+    const authTag = Buffer.from(packet. authTag, 'base64');
+
+    this.logger.log(`  Sequence Number: ${packet.sequenceNumber}`);
+    this.logger.log(`  Ciphertext length: ${ciphertext.length} bytes`);
+
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', session.keys.encryptionKey, iv);
+      decipher.setAuthTag(authTag);
+
+      let plaintext = decipher.update(ciphertext);
+      plaintext = Buffer.concat([plaintext, decipher. final()]);
+
+      const message = plaintext.toString('utf8');
+
+      this.logger.log(`  Decrypted message: "${message}"`);
+      this.logger.log('  ✓ Message decrypted and verified');
+
+      session.lastReceivedSeqNum = packet.sequenceNumber;
+
+      if (! this.messageQueues.has(fromNodeId)) {
+        this.messageQueues.set(fromNodeId, []);
+      }
+
+      this.messageQueues.get(fromNodeId).push({
+        content: message,
+        timestamp: packet.timestamp,
+        sequenceNumber: packet.sequenceNumber,
+      });
+
+      this.logger. log(`  Messages from ${fromNodeId}: ${this. messageQueues.get(fromNodeId).length}`);
+
+      return {
+        success: true,
+        message,
+        sequenceNumber: packet. sequenceNumber,
+      };
+    } catch (error) {
+      this.logger.error('  ✗ Decryption failed - authentication tag invalid');
+      throw new Error('Message authentication failed');
+    }
+  }
+
+  getMessages(fromNodeId: string): Message[] {
+    return this.messageQueues.get(fromNodeId) || [];
+  }
+
+  clearMessages(fromNodeId: string): void {
+    this.messageQueues.delete(fromNodeId);
+  }
+
+  getActiveSessions() {
+    return Array.from(this.sessions.values()).map(session => ({
+      nodeId: session.nodeId,
+      establishedAt: session.establishedAt,
+      sequenceNumber: session.sequenceNumber,
+    }));
+  }
+
+  private getPortForNode(nodeId: string): number {
+    const portMap = {
+      node1: 3000,
+      node2: 3001,
+      node3: 3002,
+      node4: 3003,
+      node5: 3004,
+    };
+    return portMap[nodeId] || 3000;
   }
 }

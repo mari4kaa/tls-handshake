@@ -28,8 +28,8 @@ export interface Certificate {
 export interface CertificateSigningRequest {
   nodeId: string;
   subject: string;
-  publicKey: string;
-  requestedAt: string;
+  publicKey:  string;
+  requestedAt:  string;
   metadata?: {
     ipAddress?: string;
     purpose?: string;
@@ -44,7 +44,7 @@ export class CaClientService {
   private myPrivateKey: string;
   
   constructor(
-    @Inject('NODE_ID') private readonly nodeId: string,
+    @Inject('NODE_ID') private readonly nodeId:  string,
     @Inject('CA_CONFIG') private readonly config: CaConfig,
     private readonly logger: Logger,
     private readonly httpService: HttpService,
@@ -59,10 +59,7 @@ export class CaClientService {
     this.logger.log(`  CA Authority:  ${this.config.authorityUrl}`);
     this.logger.log('');
     
-    // Завантаження публічного ключа CA
     await this.fetchCAPublicKey();
-    
-    // Запит сертифікату для себе
     await this.requestCertificate();
     
     this.logger.log('✓ CA client initialized successfully');
@@ -84,7 +81,7 @@ export class CaClientService {
           })
         );
         
-        this.caPublicKey = response.data.publicKey;
+        this.caPublicKey = response.data. publicKey;
         
         this.logger.log('✓ CA public key retrieved');
         this.logger.log(`  Key length: ${this.caPublicKey.length} characters`);
@@ -106,9 +103,8 @@ export class CaClientService {
           );
         }
         
-        // Exponential backoff
         const delay = this.config.retryDelay * Math.pow(2, attempts - 1);
-        this.logger.log(`Retrying in ${delay}ms... `);
+        this.logger.log(`Retrying in ${delay}ms...`);
         await this.sleep(delay);
       }
     }
@@ -119,7 +115,6 @@ export class CaClientService {
     this.logger.log('  REQUESTING CERTIFICATE FROM CA');
     this.logger.log('═══════════════════════════════════════════════════════════');
     
-    // Генерація власної пари ключів
     this.logger.log('Generating RSA-2048 key pair...');
     const { publicKey, privateKey } = generateKeyPairSync('rsa', {
       modulusLength: 2048,
@@ -128,13 +123,12 @@ export class CaClientService {
     });
     
     this.logger.log('✓ Key pair generated');
-    this.logger.log(`  Public Key:  ${publicKey.length} characters`);
-    this.logger.log(`  Private Key: ${privateKey.length} characters (secured)`);
+    this.logger.log(`  Public Key: ${publicKey.length} characters`);
+    this.logger.log(`  Private Key: ${privateKey. length} characters (secured)`);
     this.logger.log('');
     
-    // Створення CSR
-    const csr: CertificateSigningRequest = {
-      nodeId: this.nodeId,
+    const csr:  CertificateSigningRequest = {
+      nodeId: this. nodeId,
       subject: `CN=${this.nodeId},O=TLS Node`,
       publicKey: publicKey,
       requestedAt: new Date().toISOString(),
@@ -149,9 +143,8 @@ export class CaClientService {
     this.logger.log(`  Public Key length: ${publicKey.length} characters`);
     this.logger.log('');
     
-    // Відправка CSR до CA
     let attempts = 0;
-    const maxAttempts = this.config. retryAttempts;
+    const maxAttempts = this.config.retryAttempts;
     
     while (attempts < maxAttempts) {
       try {
@@ -174,10 +167,9 @@ export class CaClientService {
         this.logger.log(`  Issuer: ${this.myCertificate.issuer}`);
         this.logger.log(`  Valid From: ${this.myCertificate.validFrom}`);
         this.logger.log(`  Valid To: ${this.myCertificate.validTo}`);
-        this.logger.log(`  Signature length: ${this.myCertificate.signature.length} characters`);
+        this.logger.log(`  Signature length: ${this.myCertificate.signature. length} characters`);
         this.logger.log('');
         
-        // Збереження приватного ключа
         this.myPrivateKey = privateKey;
         this.myPublicKey = publicKey;
         
@@ -206,14 +198,12 @@ export class CaClientService {
     }
   }
 
-  // Верифікація сертифікату (доступна всім)
   async verifyCertificate(certificate:  Certificate): Promise<boolean> {
     this.logger. log('');
     this.logger.log('=== VERIFYING CERTIFICATE ===');
     this.logger.log(`Serial:  ${certificate.serialNumber}`);
     this.logger.log(`Subject: ${certificate.subject}`);
     
-    // Перевірка терміну дії
     const now = new Date();
     const validFrom = new Date(certificate.validFrom);
     const validTo = new Date(certificate.validTo);
@@ -228,7 +218,6 @@ export class CaClientService {
       return false;
     }
     
-    // Перевірка підпису
     const dataToVerify = certificate.publicKey + certificate.subject;
     const verify = createVerify('RSA-SHA256');
     verify.update(dataToVerify);

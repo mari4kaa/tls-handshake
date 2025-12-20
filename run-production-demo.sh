@@ -225,30 +225,6 @@ done
 
 echo ""
 
-# Display architecture
-echo "═══════════════════════════════════════════════════════════"
-echo "  System Architecture"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "              ┌──────────────────────┐"
-echo "              │   CA Server          │  ← SEPARATE AUTHORITY"
-echo "              │   port 9000          │"
-echo "              └──────────┬───────────┘"
-echo "                         │"
-echo "         ┌───────┬───────┼───────┬───────┐"
-echo "         │       │       │       │       │"
-echo "       node1   node2   node3   node4   node5"
-echo "       (3000)  (3001)  (3002)  (3003)  (3004)"
-echo ""
-echo "  Linear Topology: node1 ↔ node2 ↔ node3 ↔ node4 ↔ node5"
-echo ""
-echo "  ALL NODES ARE EQUAL PEERS:"
-echo "    ✓ Each requested certificate from CA"
-echo "    ✓ Each has only CA public key (not private)"
-echo "    ✓ Can perform TLS handshakes with neighbors"
-echo "    ✓ No node has CA signing privileges"
-echo ""
-
 # Phase 1: TLS Handshakes
 echo "═══════════════════════════════════════════════════════════"
 echo "  Phase 1: TLS Handshakes (7-Step Protocol)"
@@ -277,7 +253,7 @@ initiate_handshake() {
   
   echo "  ${from_node} <-> ${to_node}..."
   
-  result=$(curl -s -X POST http://localhost:${from_port}/test/initiate-handshake \
+  result=$(curl -s -X POST http://localhost:${from_port}/handshake/test-initiate-handshake \
     -H "Content-Type: application/json" \
     -d "{\"targetNodeId\":\"${to_node}\",\"targetUrl\":\"${to_url}\"}" \
     2>/dev/null)
@@ -304,7 +280,6 @@ initiate_handshake "node2" 3001 "node3" "http://localhost:3002"
 initiate_handshake "node3" 3002 "node4" "http://localhost:3003"
 initiate_handshake "node4" 3003 "node5" "http://localhost:3004"
 
-echo "✓ All handshakes completed successfully!"
 echo ""
 
 # Check active sessions
@@ -390,12 +365,10 @@ for port in 3000 3001 3002 3003; do
   
   if [ !  -z "$msg_count" ] && [ "$msg_count" -gt 0 ]; then
     echo "  ${node_id} received:  ${msg_count} message(s) from ${check_from}"
+  else
+    echo "FAILED TO RECIEVE"
   fi
 done
-
-echo ""
-echo "✓ Direct secure messaging works!"
-echo ""
 
 # Phase 3: File Transfer
 echo "═══════════════════════════════════════════════════════════"
@@ -444,10 +417,6 @@ if echo "$result" | grep -q "success"; then
 else
   echo "  ✗ File transfer failed"
 fi
-
-echo ""
-echo "✓ Secure file transfer capability demonstrated!"
-echo ""
 
 # Phase 4: Packet Fragmentation
 echo "═══════════════════════════════════════════════════════════"
@@ -541,53 +510,6 @@ echo "Network Topology:  node1 ↔ node2 ↔ node3 ↔ node4 ↔ node5"
 echo "Status:  OPERATIONAL"
 echo ""
 
-# Security Model
-echo "═══════════════════════════════════════════════════════════"
-echo "  Security Model Summary"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  CA Server (port 9000):"
-echo "    • Role: ROOT CERTIFICATE AUTHORITY"
-echo "    • Has CA private key (signing capability)"
-echo "    • Issued ${CERT_COUNT} certificates"
-echo "    • Maintains certificate registry"
-echo "    • Can revoke compromised certificates"
-echo ""
-echo "  Network Nodes (ports 3000-3004):"
-echo "    • Role: EQUAL PEERS"
-echo "    • Have ONLY CA public key"
-echo "    • Cannot sign certificates"
-echo "    • Can verify certificates"
-echo "    • Perform TLS handshakes"
-echo "    • Exchange encrypted messages"
-echo ""
-echo "  Cryptographic Algorithms:"
-echo "    • Certificates: RSA-2048"
-echo "    • Signatures: RSA-SHA256"
-echo "    • Key Exchange: RSA-OAEP-SHA256"
-echo "    • Key Derivation: HKDF-SHA256"
-echo "    • Symmetric Encryption: AES-256-GCM"
-echo "    • Authentication: GCM Auth Tags"
-echo ""
-
-# Demonstrated Features
-echo "═══════════════════════════════════════════════════════════"
-echo "  Demonstrated Features"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  ✓ Separate Certificate Authority Server"
-echo "  ✓ X.509-style SSL Certificates"
-echo "  ✓ 7-Step TLS Handshake Protocol"
-echo "  ✓ Certificate Verification with CA"
-echo "  ✓ RSA Key Exchange"
-echo "  ✓ Session Key Derivation (HKDF)"
-echo "  ✓ AES-256-GCM Encrypted Messaging"
-echo "  ✓ File Transfer over Secure Channel"
-echo "  ✓ Packet Fragmentation (MTU limits)"
-echo "  ✓ Network Broadcast with Routing"
-echo "  ✓ Distributed Topology (5 nodes)"
-echo "  ✓ Loop Prevention (Spanning Tree)"
-echo ""
 
 # Running Processes
 echo "═══════════════════════════════════════════════════════════"
@@ -604,65 +526,6 @@ echo ""
 echo "  Logs available in:"
 echo "    CA Server:  ./tmp/ca-logs/ca-server.log"
 echo "    Nodes:      ./tmp/node-logs/node*. log"
-echo ""
-
-# Detailed logs viewing
-echo "═══════════════════════════════════════════════════════════"
-echo "  View Detailed Logs"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  To view CA operations:"
-echo "    tail -f ./tmp/ca-logs/ca-server.log"
-echo ""
-echo "  To view TLS handshake details:"
-echo "    tail -f ./tmp/node-logs/node1.log"
-echo ""
-echo "  To view all certificate operations:"
-echo "    grep 'CERTIFICATE' ./tmp/ca-logs/ca-server.log"
-echo ""
-echo "  To view handshake steps:"
-echo "    grep 'HANDSHAKE STEP' ./tmp/node-logs/node*. log"
-echo ""
-echo "  To view encrypted messages:"
-echo "    grep 'SECURE CHANNEL' ./tmp/node-logs/node*.log"
-echo ""
-
-# API Examples
-echo "═══════════════════════════════════════════════════════════"
-echo "  Interactive Testing"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  Test handshake manually:"
-echo "    curl -X POST http://localhost:3000/test/initiate-handshake \\"
-echo "         -H 'Content-Type:  application/json' \\"
-echo "         -d '{\"targetNodeId\":\"node2\",\"targetUrl\":\"http://localhost:3001\"}'"
-echo ""
-echo "  Send secure message:"
-echo "    curl -X POST http://localhost:3000/secure/send \\"
-echo "         -H 'Content-Type: application/json' \\"
-echo "         -d '{\"toNodeId\":\"node2\",\"message\":\"Test message\"}'"
-echo ""
-echo "  View CA certificate registry:"
-echo "    curl -s http://localhost:9000/issued-certificates | jq"
-echo ""
-echo "  Get node info:"
-echo "    curl -s http://localhost:3000/info | jq"
-echo ""
-echo "  View received messages:"
-echo "    curl -s http://localhost:3001/secure/messages/node1 | jq"
-echo ""
-
-# Final status
-echo "═══════════════════════════════════════════════════════════"
-echo "  Demo Complete - System Running"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  All TLS/SSL features demonstrated successfully!"
-echo ""
-echo "  The system will continue running for interactive testing."
-echo "  Press Ctrl+C to stop all services."
-echo ""
-echo "═══════════════════════════════════════════════════════════"
 echo ""
 
 # Keep running

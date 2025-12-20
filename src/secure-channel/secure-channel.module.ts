@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { SecureChannelService } from './secure-channel.service';
-import { CryptoModule } from '../crypto/crypto.module';
+import { SecureChannelController } from './secure-channel.controller';
+import { HandshakeModule } from '../handshake/handshake.module';
 
 @Module({
-  imports: [CryptoModule],
+  imports: [HttpModule, HandshakeModule],
   providers: [SecureChannelService],
+  controllers: [SecureChannelController],
   exports: [SecureChannelService],
 })
 export class SecureChannelModule {}

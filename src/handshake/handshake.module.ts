@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { HandshakeService } from './handshake.service';
-import { CryptoModule } from '../crypto/crypto.module';
-import { CaModule } from '../ca/ca.module';
+import { HandshakeController } from './handshake.controller';
 
 @Module({
-  imports: [CryptoModule, CaModule],
+  imports: [HttpModule],
   providers: [HandshakeService],
+  controllers: [HandshakeController],
   exports: [HandshakeService],
 })
 export class HandshakeModule {}

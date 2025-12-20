@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body, Param, Inject } from '@nestjs/common';
-import { CaClientService } from '../ca-server/services/ca-client.service';
+import { Controller, Get, Post, Body, Inject } from '@nestjs/common';
+import { CaClientService } from './ca-client.service';
 
 @Controller()
 export class NetworkNodeController {

@@ -1,8 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { RoutingService } from './routing.service';
+import { TopologyService } from './topology.service';
 
+@Global()
 @Module({
-  providers: [RoutingService],
-  exports: [RoutingService],
+  imports: [HttpModule],
+  providers: [
+    RoutingService,
+    TopologyService,
+  ],
+  exports: [RoutingService, TopologyService],
 })
 export class RoutingModule {}
