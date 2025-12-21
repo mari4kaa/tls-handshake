@@ -49,20 +49,19 @@ export class SecureChannelController {
     };
   }
 
-  @Post('receive')
-  async receiveMessage(@Body() packet: any) {
+  @Post('receive-packet')
+  async receivePacket(@Body() packet: any) {
     try {
-      const result = await this.secureChannelService.receiveSecureMessage(packet);
+      const result = await this. secureChannelService.receivePacket(packet);
       
       return {
         success: true,
-        message: 'Message received and decrypted',
-        sequenceNumber: result.sequenceNumber,
+        ... result,
       };
     } catch (error) {
       return {
         success: false,
-        error:  error.message,
+        error: error.message,
       };
     }
   }

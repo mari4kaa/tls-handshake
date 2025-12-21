@@ -3,6 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { createCipheriv, createDecipheriv } from 'crypto';
 import { HandshakeService } from '../handshake/handshake.service';
+import { TransportService } from '../transport/transport.service';
+import { NetworkPacket } from '../types';
 
 interface SecureSession {
   nodeId: string;
@@ -27,18 +29,19 @@ export interface Message {
 @Injectable()
 export class SecureChannelService {
   private readonly logger = new Logger('SecureChannelService');
-  private sessions:  Map<string, SecureSession> = new Map();
+  private sessions: Map<string, SecureSession> = new Map();
   private messageQueues: Map<string, Message[]> = new Map();
 
   constructor(
     @Inject('NODE_ID') private readonly nodeId: string,
     private readonly handshakeService: HandshakeService,
     private readonly httpService: HttpService,
+    private readonly transportService: TransportService,
   ) {}
 
-  async sendSecureMessage(toNodeId: string, message: string) {
+  async sendSecureMessage(toNodeId: string, message: string, options?:  { mtu?: number }) {
     this.logger.log(`\n=== SENDING SECURE MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`);
-    this.logger.log(`  Message: "${message}"`);
+    this.logger.log(`  Message:  "${message. substring(0, 50)}${message.length > 50 ?  '...' : ''}"`);
     this.logger.log(`  Length: ${message.length} bytes`);
 
     let session = this.sessions.get(toNodeId);
@@ -53,22 +56,22 @@ export class SecureChannelService {
       session = {
         nodeId: toNodeId,
         keys: sessionKeys,
-        sequenceNumber: 0,
+        sequenceNumber:  0,
         lastReceivedSeqNum: 0,
         establishedAt: new Date(),
       };
 
-      this.sessions.set(toNodeId, session);
+      this. sessions.set(toNodeId, session);
     }
 
     session.sequenceNumber++;
 
     const iv = Buffer.alloc(16);
     session.keys.ivSeed. copy(iv);
-    iv.writeUInt32BE(session. sequenceNumber, 12);
+    iv.writeUInt32BE(session.sequenceNumber, 12);
 
     this.logger.log(`  Sequence Number: ${session.sequenceNumber}`);
-    this.logger.log(`  IV: ${iv.toString('hex')}`);
+    this.logger.log(`  IV:  ${iv.toString('hex')}`);
 
     const cipher = createCipheriv('aes-256-gcm', session. keys.encryptionKey, iv);
 
@@ -77,7 +80,7 @@ export class SecureChannelService {
 
     const authTag = cipher.getAuthTag();
 
-    this.logger.log(`  Ciphertext: ${ciphertext.toString('hex').substring(0, 50)}...`);
+    this.logger.log(`  Ciphertext:  ${ciphertext.toString('hex').substring(0, 50)}...`);
     this.logger.log(`  Auth Tag: ${authTag.toString('hex')}`);
     this.logger.log('  ✓ Message encrypted (AES-256-GCM)');
 
@@ -86,31 +89,115 @@ export class SecureChannelService {
       fromNodeId: this.nodeId,
       toNodeId:  toNodeId,
       sequenceNumber: session.sequenceNumber,
-      ciphertext: ciphertext.toString('base64'),
+      ciphertext: ciphertext. toString('base64'),
       iv: iv.toString('base64'),
       authTag: authTag. toString('base64'),
       timestamp: Date.now(),
     };
 
-    try {
-      await firstValueFrom(
-        this.httpService.post(`http://localhost:${this.getPortForNode(toNodeId)}/secure/receive`, encryptedMessage)
-      );
+    // Serialize encrypted message to buffer
+    const payload = Buffer.from(JSON.stringify(encryptedMessage));
+    
+    this.logger.log(`\n  Encrypted payload size: ${payload.length} bytes`);
 
-      this.logger.log('  ✓ Message sent successfully');
+    // *** USE TRANSPORT SERVICE FOR FRAGMENTATION ***
+    const mtu = options?.mtu || 1500; // Default MTU 1500 bytes
+    this.logger.log(`  MTU limit: ${mtu} bytes`);
 
-      return {
-        success: true,
-        sequenceNumber: session.sequenceNumber,
-      };
-    } catch (error) {
-      this.logger.error(`  ✗ Failed to send message: ${error.message}`);
-      throw error;
+    const packets = this.transportService.fragmentMessage(
+      this.nodeId,
+      toNodeId,
+      payload,
+      mtu,
+      session.sequenceNumber
+    );
+
+    if (packets.length > 1) {
+      this.logger. log(`\n  ✓ Message fragmented into ${packets.length} packets`);
+      for (let i = 0; i < packets.length; i++) {
+        this.logger.log(`    Fragment ${i + 1}/${packets.length}:  ${packets[i].payload.length} bytes`);
+      }
+    } else {
+      this.logger.log(`  ✓ Message fits in single packet (no fragmentation needed)`);
     }
+
+    this.logger.log(`\n  Sending ${packets.length} packet(s) to ${toNodeId}...`);
+
+    // Send each packet
+    let sentCount = 0;
+    for (const packet of packets) {
+      try {
+        await firstValueFrom(
+          this.httpService.post(
+            `http://localhost:${this.getPortForNode(toNodeId)}/secure/receive-packet`,
+            this.serializePacket(packet)
+          )
+        );
+
+        sentCount++;
+        
+        if (packet.isFragment) {
+          this.logger.log(`    ✓ Fragment ${packet.fragmentIndex!  + 1}/${packet.totalFragments} sent`);
+        } else {
+          this.logger.log(`    ✓ Packet sent`);
+        }
+
+        // Small delay between fragments to simulate network
+        if (packets.length > 1) {
+          await this.transportService.applyDelay(10);
+        }
+      } catch (error) {
+        this.logger.error(`    ✗ Failed to send packet:  ${error.message}`);
+        throw error;
+      }
+    }
+
+    this.logger.log(`\n  ✓ All ${sentCount} packet(s) sent successfully`);
+
+    return {
+      success: true,
+      sequenceNumber: session.sequenceNumber,
+      fragments: packets.length,
+      totalBytes: payload.length,
+    };
   }
 
-  async receiveSecureMessage(packet: any) {
-    this.logger.log(`\n=== RECEIVING SECURE MESSAGE from ${packet.fromNodeId} ===`);
+  async receivePacket(packetData: any) {
+    const packet = this.deserializePacket(packetData);
+
+    if (packet.isFragment) {
+      this.logger.log(`\n=== RECEIVING FRAGMENT from ${packet.source} ===`);
+      this.logger.log(`  Fragment ${packet.fragmentIndex! + 1}/${packet.totalFragments}`);
+      this.logger.log(`  Fragment ID: ${packet.fragmentId}`);
+      this.logger.log(`  Payload size: ${packet.payload.length} bytes`);
+    } else {
+      this.logger.log(`\n=== RECEIVING PACKET from ${packet.source} ===`);
+      this.logger.log(`  Payload size: ${packet.payload.length} bytes`);
+    }
+
+    // Try to reassemble
+    const payload = this.transportService.reassembleFragments(packet);
+
+    if (! payload) {
+      // Still waiting for more fragments
+      this.logger.log(`  ⏳ Waiting for more fragments...`);
+      return {
+        success: true,
+        waiting: true,
+        message: 'Fragment received, waiting for more',
+      };
+    }
+
+    // All fragments received (or single packet), decrypt message
+    this.logger.log(`\n  ✓ All fragments received, reassembled ${payload.length} bytes`);
+    this.logger.log(`  Decrypting message...`);
+    
+    const parsed = JSON.parse(payload.toString());
+    return await this.processSecureMessage(parsed);
+  }
+
+  private async processSecureMessage(packet: any) {
+    this.logger.log(`\n=== DECRYPTING SECURE MESSAGE from ${packet.fromNodeId} ===`);
 
     const fromNodeId = packet.fromNodeId;
 
@@ -141,7 +228,7 @@ export class SecureChannelService {
 
     const ciphertext = Buffer.from(packet.ciphertext, 'base64');
     const iv = Buffer.from(packet.iv, 'base64');
-    const authTag = Buffer.from(packet. authTag, 'base64');
+    const authTag = Buffer. from(packet.authTag, 'base64');
 
     this.logger.log(`  Sequence Number: ${packet.sequenceNumber}`);
     this.logger.log(`  Ciphertext length: ${ciphertext.length} bytes`);
@@ -155,7 +242,8 @@ export class SecureChannelService {
 
       const message = plaintext.toString('utf8');
 
-      this.logger.log(`  Decrypted message: "${message}"`);
+      this.logger.log(`  Decrypted message: "${message. substring(0, 50)}${message.length > 50 ?  '...' : ''}"`);
+      this.logger.log(`  Message length: ${message.length} bytes`);
       this.logger.log('  ✓ Message decrypted and verified');
 
       session.lastReceivedSeqNum = packet.sequenceNumber;
@@ -183,6 +271,37 @@ export class SecureChannelService {
     }
   }
 
+  async receiveSecureMessage(packet: any) {
+    // Backward compatibility - treat as non-fragmented
+    return await this.processSecureMessage(packet);
+  }
+
+  private serializePacket(packet: NetworkPacket): any {
+    return {
+      source: packet.source,
+      destination: packet.destination,
+      payload: packet.payload. toString('base64'),
+      sequenceNumber:  packet.sequenceNumber,
+      isFragment: packet.isFragment,
+      fragmentId: packet.fragmentId,
+      fragmentIndex: packet.fragmentIndex,
+      totalFragments: packet.totalFragments,
+    };
+  }
+
+  private deserializePacket(data: any): NetworkPacket {
+    return {
+      source: data.source,
+      destination: data.destination,
+      payload: Buffer.from(data.payload, 'base64'),
+      sequenceNumber:  data.sequenceNumber,
+      isFragment: data.isFragment,
+      fragmentId: data.fragmentId,
+      fragmentIndex: data.fragmentIndex,
+      totalFragments: data.totalFragments,
+    };
+  }
+
   getMessages(fromNodeId: string): Message[] {
     return this.messageQueues.get(fromNodeId) || [];
   }
@@ -199,7 +318,7 @@ export class SecureChannelService {
     }));
   }
 
-  private getPortForNode(nodeId: string): number {
+  private getPortForNode(nodeId:  string): number {
     const portMap = {
       node1: 3000,
       node2: 3001,

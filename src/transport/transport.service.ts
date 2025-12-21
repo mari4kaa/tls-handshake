@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NetworkPacket } from '../types';
 
-interface Fragment {
+export interface Fragment {
   fragmentId: string;
   fragmentIndex: number;
   totalFragments: number;

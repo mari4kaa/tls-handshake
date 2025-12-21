@@ -69,7 +69,7 @@ echo ""
 
 # Start CA Server
 echo "═══════════════════════════════════════════════════════════"
-echo "  Step 1: Starting Certificate Authority Server"
+echo "  Starting Certificate Authority Server"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -102,9 +102,8 @@ fi
 
 echo ""
 
-# Start Network Nodes
 echo "═══════════════════════════════════════════════════════════"
-echo "  Step 2: Starting Network Nodes (node1-node5)"
+echo "  Starting Network Nodes (node1-node5)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "All nodes will request certificates from CA..."
@@ -149,9 +148,8 @@ start_node "node3" 3002
 start_node "node4" 3003
 start_node "node5" 3004
 
-# Verify all nodes are running
 echo "═══════════════════════════════════════════════════════════"
-echo "  Step 3: Verifying Node Status"
+echo "  Verifying Node Status"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -169,9 +167,8 @@ done
 
 echo ""
 
-# Configure topology
 echo "═══════════════════════════════════════════════════════════"
-echo "  Step 4: Configuring Network Topology"
+echo "  Configuring Network Topology"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -202,7 +199,6 @@ echo ""
 echo "✓ Topology configured on all nodes"
 echo ""
 
-# Get CA statistics
 echo "═══════════════════════════════════════════════════════════"
 echo "  Certificate Authority Status"
 echo "═══════════════════════════════════════════════════════════"
@@ -224,9 +220,8 @@ done
 
 echo ""
 
-# Phase 1: TLS Handshakes
 echo "═══════════════════════════════════════════════════════════"
-echo "  Phase 1: TLS Handshakes (7-Step Protocol)"
+echo "  TLS Handshakes (7-Step Protocol)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -259,12 +254,6 @@ initiate_handshake() {
   
   if echo "$result" | grep -q "success"; then
     echo "    ✓ Handshake completed successfully"
-    echo "    • ClientHello sent with random nonce"
-    echo "    • ServerHello + certificate received"
-    echo "    • Certificate verified with CA"
-    echo "    • Premaster secret exchanged (RSA-2048)"
-    echo "    • Session keys derived (AES-256-GCM)"
-    echo "    • Secure channel established"
   else
     echo "    ✗ Handshake failed"
   fi
@@ -293,9 +282,8 @@ done
 
 echo ""
 
-# Phase 2: Secure Messaging
 echo "═══════════════════════════════════════════════════════════"
-echo "  Phase 2: Secure Messaging (Encrypted Communication)"
+echo "  Secure Messaging (Encrypted Communication)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -363,13 +351,11 @@ for port in 3000 3001 3002 3003; do
   fi
 done
 
-# Phase 3: File Transfer
 echo "═══════════════════════════════════════════════════════════"
-echo "  Phase 3: File Transfer Simulation"
+echo "  File Transfer Simulation"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
-# Create a test file
 TEST_FILE_CONTENT="This is a test file for secure transfer.  It contains encrypted content that will be sent from node2 to node3. File integrity is guaranteed by AES-256-GCM authentication tags."
 
 echo "Creating test file (234 bytes)..."
@@ -401,9 +387,9 @@ else
   echo "  ✗ File transfer failed"
 fi
 
-# Phase 4: Packet Fragmentation
+# Packet Fragmentation
 echo "═══════════════════════════════════════════════════════════"
-echo "  Phase 4: Packet Fragmentation (MTU Limits)"
+echo "  Packet Fragmentation (MTU Limits)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -414,51 +400,57 @@ echo "  node3 ↔ node4: 128 bytes (slow radio link)"
 echo "  node4 ↔ node5: 256 bytes"
 echo ""
 
-# Create large message (400 bytes)
-LARGE_MESSAGE=$(printf 'A%. 0s' $(seq 1 400))
+# Create large message (1000 bytes)
+LARGE_MESSAGE=$(python3 -c "print('A' * 1000)" 2>/dev/null)
+if [ -z "$LARGE_MESSAGE" ]; then
+  LARGE_MESSAGE=""
+  for i in {1..1000}; do
+    LARGE_MESSAGE="${LARGE_MESSAGE}A"
+  done
+fi
 
 echo "Sending large message (${#LARGE_MESSAGE} bytes) from node1 to node2..."
-echo "  Expected:  Message will be fragmented (MTU: 256 bytes)"
+echo "  MTU limit: 256 bytes"
+echo "  Expected:  Message will be fragmented"
 echo ""
 
 result=$(curl -s -X POST http://localhost:3000/secure/send \
   -H "Content-Type: application/json" \
-  -d "{\"toNodeId\":\"node2\",\"message\":\"${LARGE_MESSAGE}\"}" \
+  -d "{\"toNodeId\": \"node2\",\"message\":\"${LARGE_MESSAGE}\",\"mtu\":256}" \
   2>/dev/null)
 
 if echo "$result" | grep -q '"success":true'; then
   seq_num=$(echo "$result" | grep -o '"sequenceNumber":[0-9]*' | grep -o '[0-9]*')
-  echo "  ✓ Large message sent (sequence:  ${seq_num})"
-  echo "    • Message size: ${#LARGE_MESSAGE} bytes"
-  echo "    • Encrypted size: ~$((${#LARGE_MESSAGE} + 32)) bytes (with IV + auth tag)"
-  echo "    • Note: Encrypted payload sent as single HTTP request"
-  echo "    • Application-level fragmentation would require TransportService integration"
+  fragments=$(echo "$result" | grep -o '"fragments":[0-9]*' | grep -o '[0-9]*')
+  total_bytes=$(echo "$result" | grep -o '"totalBytes":[0-9]*' | grep -o '[0-9]*')
   
-  sleep 1
+  echo "  ✓ Message fragmented and sent"
+  echo "    • Original message: ${#LARGE_MESSAGE} bytes"
+  echo "    • Encrypted payload: ${total_bytes} bytes"
+  echo "    • MTU limit: 256 bytes"
+  echo "    • Fragments created: ${fragments}"
+  echo "    • Sequence number: ${seq_num}"
   
-  # Verify reception
+  sleep 2
+  
   received=$(curl -s http://localhost:3001/secure/messages/node1 2>/dev/null)
   msg_count=$(echo "$received" | grep -o '"total":[0-9]*' | grep -o '[0-9]*')
   
-  if [ ! -z "$msg_count" ] && [ "$msg_count" -gt 0 ]; then
-    echo "  ✓ Message received and reassembled at node2"
+  if [ !  -z "$msg_count" ] && [ "$msg_count" -gt 0 ]; then
+    echo "  ✓ All fragments reassembled and message decrypted at node2"
+    echo "    • Received ${msg_count} total message(s) from node1"
   fi
 else
-  echo "  ✗ Large message failed"
+  echo "  ✗ Fragmentation failed"
+  echo "  Debug: $result"
 fi
 
 echo ""
 
-# Phase 5: Network Broadcast
+# Network Broadcast
 echo "═══════════════════════════════════════════════════════════"
-echo "  Phase 5: Network Broadcast with Routing"
+echo "  Network Broadcast with Routing"
 echo "═══════════════════════════════════════════════════════════"
-echo ""
-
-echo "Broadcasting message from node1 to entire network..."
-echo "  Topology: Linear (not fully connected)"
-echo "  Expected to reach:  node2, node3, node4, node5"
-echo "  Routing: Messages forwarded through intermediate nodes"
 echo ""
 
 result=$(curl -s -X POST http://localhost:3000/network/broadcast \
@@ -480,44 +472,6 @@ else
   echo "  ✗ Broadcast failed"
 fi
 
-echo ""
-
-# Network Status Summary
-echo "═══════════════════════════════════════════════════════════"
-echo "  Network Status Summary"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-
-for port in 3000 3001 3002 3003 3004; do
-  node_id=$(curl -s http://localhost:${port}/info 2>/dev/null | grep -o '"nodeId":"[^"]*"' | cut -d'"' -f4)
-  sessions=$(curl -s http://localhost:${port}/sessions 2>/dev/null | grep -o '"total":[0-9]*' | grep -o '[0-9]*')
-  
-  if [ ! -z "$sessions" ]; then
-    echo "  ${node_id}: ${sessions} active secure session(s)"
-  fi
-done
-
-echo ""
-echo "Network Topology:  node1 ↔ node2 ↔ node3 ↔ node4 ↔ node5"
-echo "Status:  OPERATIONAL"
-echo ""
-
-
-# Running Processes
-echo "═══════════════════════════════════════════════════════════"
-echo "  Running Processes"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "  CA Server:     PID $(cat ./tmp/ca-server. pid 2>/dev/null || echo 'unknown')"
-echo "  node1:        PID $(cat ./tmp/node1.pid 2>/dev/null || echo 'unknown')"
-echo "  node2:        PID $(cat ./tmp/node2.pid 2>/dev/null || echo 'unknown')"
-echo "  node3:        PID $(cat ./tmp/node3.pid 2>/dev/null || echo 'unknown')"
-echo "  node4:        PID $(cat ./tmp/node4.pid 2>/dev/null || echo 'unknown')"
-echo "  node5:        PID $(cat ./tmp/node5.pid 2>/dev/null || echo 'unknown')"
-echo ""
-echo "  Logs available in:"
-echo "    CA Server:  ./tmp/ca-logs/ca-server.log"
-echo "    Nodes:      ./tmp/node-logs/node*. log"
 echo ""
 
 # Keep running
