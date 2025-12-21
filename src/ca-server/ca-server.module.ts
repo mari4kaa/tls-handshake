@@ -1,14 +1,14 @@
-import { Module, Logger } from '@nestjs/common';
-import { CaAuthorityService } from './services/ca-authority.service';
-import { CaController } from './controllers/ca.controller';
+import { Module, Logger } from "@nestjs/common";
+import { CaAuthorityService } from "./services/ca-authority.service";
+import { CaController } from "./controllers/ca.controller";
 
 @Module({
   controllers: [CaController],
-  providers:  [
+  providers: [
     CaAuthorityService,
     {
       provide: Logger,
-      useValue: new Logger('CAServer'),
+      useValue: new Logger("CAServer"),
     },
   ],
   exports: [CaAuthorityService],

@@ -1,26 +1,26 @@
-import { Module, Global } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
-import { ConfigModule } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
-import { CaClientService } from './ca-client.service';
+import { Module, Global } from "@nestjs/common";
+import { HttpModule } from "@nestjs/axios";
+import { ConfigModule } from "@nestjs/config";
+import { Logger } from "@nestjs/common";
+import { CaClientService } from "./ca-client.service";
 
 // Controllers
-import { NetworkNodeController } from './network-node.controller';
-import { HandshakeController } from '../handshake/handshake.controller';
-import { TopologyController } from '../routing/topology.controller';
-import { NetworkController } from './network.controller';
-import { SessionsController } from './sessions.controller';
+import { NetworkNodeController } from "./network-node.controller";
+import { HandshakeController } from "../handshake/handshake.controller";
+import { TopologyController } from "../routing/topology.controller";
+import { NetworkController } from "./network.controller";
+import { SessionsController } from "./sessions.controller";
 
 // Service modules
-import { CryptoModule } from '../crypto/crypto.module';
-import { TransportModule } from '../transport/transport.module';
-import { RoutingModule } from '../routing/routing.module';
-import { SecureChannelModule } from '../secure-channel/secure-channel.module';
-import { HandshakeModule } from '../handshake/handshake.module';
+import { CryptoModule } from "../crypto/crypto.module";
+import { TransportModule } from "../transport/transport.module";
+import { RoutingModule } from "../routing/routing.module";
+import { SecureChannelModule } from "../secure-channel/secure-channel.module";
+import { HandshakeModule } from "../handshake/handshake.module";
 
 @Global()
 @Module({
-  imports:  [
+  imports: [
     ConfigModule.forRoot(),
     HttpModule,
     CryptoModule,
@@ -38,17 +38,17 @@ import { HandshakeModule } from '../handshake/handshake.module';
   ],
   providers: [
     {
-      provide: 'NODE_ID',
-      useFactory: () => process.env.NODE_ID || 'node1',
+      provide: "NODE_ID",
+      useFactory: () => process.env.NODE_ID || "node1",
     },
     {
-      provide: 'NODE_PORT',
-      useFactory: () => parseInt(process.env.NODE_PORT || '3000', 10),
+      provide: "NODE_PORT",
+      useFactory: () => parseInt(process.env.NODE_PORT || "3000", 10),
     },
     {
-      provide: 'CA_CONFIG',
+      provide: "CA_CONFIG",
       useFactory: () => ({
-        authorityUrl: process.env.CA_URL || 'http://localhost:9000',
+        authorityUrl: process.env.CA_URL || "http://localhost:9000",
         retryAttempts: 30,
         retryDelay: 2000,
         certificateValidityDays: 365,
@@ -56,16 +56,10 @@ import { HandshakeModule } from '../handshake/handshake.module';
     },
     {
       provide: Logger,
-      useValue: new Logger('NetworkNode'),
+      useValue: new Logger("NetworkNode"),
     },
     CaClientService,
   ],
-  exports: [
-    'NODE_ID',
-    'NODE_PORT',
-    'CA_CONFIG',
-    CaClientService,
-    Logger,
-  ],
+  exports: ["NODE_ID", "NODE_PORT", "CA_CONFIG", CaClientService, Logger],
 })
 export class NetworkNodeModule {}

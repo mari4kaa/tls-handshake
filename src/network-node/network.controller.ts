@@ -1,18 +1,18 @@
-import { Controller, Post, Body } from '@nestjs/common';
-import { RoutingService } from '../routing/routing.service';
+import { Controller, Post, Body } from "@nestjs/common";
+import { RoutingService } from "../routing/routing.service";
 
-@Controller('network')
+@Controller("network")
 export class NetworkController {
   constructor(private readonly routingService: RoutingService) {}
 
-  @Post('broadcast')
+  @Post("broadcast")
   async broadcast(@Body() body: { message: string }) {
     try {
       await this.routingService.broadcast(body.message);
 
       return {
-        success:  true,
-        message: 'Broadcast sent',
+        success: true,
+        message: "Broadcast sent",
       };
     } catch (error) {
       return {
@@ -22,7 +22,7 @@ export class NetworkController {
     }
   }
 
-  @Post('receive-broadcast')
+  @Post("receive-broadcast")
   async receiveBroadcast(
     @Body() body: { message: string; visited: string[]; fromNodeId: string }
   ) {
@@ -30,7 +30,7 @@ export class NetworkController {
     return { success: true };
   }
 
-  @Post('route')
+  @Post("route")
   async routeMessage(
     @Body() body: { toNodeId: string; message: string; path?: string[] }
   ) {
@@ -53,10 +53,10 @@ export class NetworkController {
     }
   }
 
-  @Post('receive-routed')
+  @Post("receive-routed")
   async receiveRoutedMessage(
     @Body() body: { message: string; fromNodeId: string; toNodeId: string }
   ) {
-    return { success: true, message: 'Message received' };
+    return { success: true, message: "Message received" };
   }
 }

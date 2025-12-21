@@ -1,12 +1,12 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from "@nestjs/common";
 
 @Injectable()
 export class TopologyService {
-  private readonly logger = new Logger('TopologyService');
+  private readonly logger = new Logger("TopologyService");
   private topology: Map<string, string[]> = new Map();
   private nodeUrls: Map<string, string> = new Map();
 
-  constructor(@Inject('NODE_ID') private readonly nodeId: string) {}
+  constructor(@Inject("NODE_ID") private readonly nodeId: string) {}
 
   configureTopology(topology: any) {
     this.logger.log(`\n=== CONFIGURING TOPOLOGY for ${this.nodeId} ===`);
@@ -18,11 +18,11 @@ export class TopologyService {
 
     // Default URLs
     const defaultUrls = {
-      node1: 'http://localhost:3000',
-      node2: 'http://localhost:3001',
-      node3: 'http://localhost:3002',
-      node4: 'http://localhost:3003',
-      node5: 'http://localhost:3004',
+      node1: "http://localhost:3000",
+      node2: "http://localhost:3001",
+      node3: "http://localhost:3002",
+      node4: "http://localhost:3003",
+      node5: "http://localhost:3004",
     };
 
     Object.entries(defaultUrls).forEach(([node, url]) => {
@@ -30,11 +30,11 @@ export class TopologyService {
     });
 
     const neighbors = this.getNeighbors(this.nodeId);
-    this.logger.log(`  Neighbors: ${neighbors.join(', ')}`);
-    this.logger.log('  ✓ Topology configured');
+    this.logger.log(`  Neighbors: ${neighbors.join(", ")}`);
+    this.logger.log("  ✓ Topology configured");
   }
 
-  getNeighbors(nodeId:  string): string[] {
+  getNeighbors(nodeId: string): string[] {
     return this.topology.get(nodeId) || [];
   }
 

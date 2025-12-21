@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { NetworkPacket } from '../types';
+import { Injectable } from "@nestjs/common";
+import { NetworkPacket } from "../types";
 
 export interface Fragment {
   fragmentId: string;
@@ -67,7 +67,7 @@ export class TransportService {
     }
 
     const key = packet.fragmentId!;
-    
+
     if (!this.fragmentBuffer.has(key)) {
       this.fragmentBuffer.set(key, []);
     }
@@ -87,11 +87,11 @@ export class TransportService {
       fragments.sort((a, b) => a.fragmentIndex - b.fragmentIndex);
 
       // Reassemble
-      const reassembled = Buffer.concat(fragments.map(f => f.payload));
-      
+      const reassembled = Buffer.concat(fragments.map((f) => f.payload));
+
       // Clean up
       this.fragmentBuffer.delete(key);
-      
+
       return reassembled;
     }
 
@@ -103,9 +103,12 @@ export class TransportService {
 
   private cleanupOldFragments(): void {
     const now = Date.now();
-    
+
     for (const [key, fragments] of this.fragmentBuffer.entries()) {
-      if (fragments.length > 0 && now - fragments[0].timestamp > this.FRAGMENT_TIMEOUT) {
+      if (
+        fragments.length > 0 &&
+        now - fragments[0].timestamp > this.FRAGMENT_TIMEOUT
+      ) {
         this.fragmentBuffer.delete(key);
       }
     }
@@ -113,7 +116,7 @@ export class TransportService {
 
   async applyDelay(delayMs: number): Promise<void> {
     if (delayMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 

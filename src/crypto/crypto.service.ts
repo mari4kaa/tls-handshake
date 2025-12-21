@@ -1,19 +1,18 @@
-import { Injectable } from '@nestjs/common';
-import * as crypto from 'crypto';
+import { Injectable } from "@nestjs/common";
+import * as crypto from "crypto";
 
 @Injectable()
 export class CryptoService {
-
   generateRSAKeyPair(): { publicKey: string; privateKey: string } {
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
       publicKeyEncoding: {
-        type: 'spki',
-        format: 'pem',
+        type: "spki",
+        format: "pem",
       },
       privateKeyEncoding: {
-        type: 'pkcs8',
-        format: 'pem',
+        type: "pkcs8",
+        format: "pem",
       },
     });
 
@@ -25,7 +24,7 @@ export class CryptoService {
       {
         key: publicKey,
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: 'sha256',
+        oaepHash: "sha256",
       },
       data
     );
@@ -36,7 +35,7 @@ export class CryptoService {
       {
         key: privateKey,
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: 'sha256',
+        oaepHash: "sha256",
       },
       encryptedData
     );
@@ -46,18 +45,17 @@ export class CryptoService {
     return crypto.randomBytes(length);
   }
 
-
   deriveSessionKeys(
     premasterSecret: Buffer,
     clientRandom: Buffer,
     serverRandom: Buffer
   ): { encryptionKey: Buffer; ivSeed: Buffer; hmacKey: Buffer } {
     const salt = Buffer.concat([clientRandom, serverRandom]);
-    const info = Buffer.from('TLS session');
+    const info = Buffer.from("TLS session");
 
     // derive 80 bytes: 32 for encryption, 16 for IV seed, 32 for HMAC
     const derivedKey = crypto.hkdfSync(
-      'sha256',
+      "sha256",
       premasterSecret,
       salt,
       info,
@@ -77,8 +75,11 @@ export class CryptoService {
     key: Buffer,
     iv: Buffer
   ): { ciphertext: Buffer; authTag: Buffer } {
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const ciphertext = Buffer.concat([
+      cipher.update(plaintext),
+      cipher.final(),
+    ]);
     const authTag = cipher.getAuthTag();
 
     return { ciphertext, authTag };
@@ -90,7 +91,7 @@ export class CryptoService {
     iv: Buffer,
     authTag: Buffer
   ): Buffer {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(authTag);
 
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
@@ -99,12 +100,12 @@ export class CryptoService {
   generateIV(ivSeed: Buffer, sequenceNumber: number): Buffer {
     const seqBuffer = Buffer.alloc(16);
     seqBuffer.writeUInt32BE(sequenceNumber, 12);
-    
+
     const iv = Buffer.alloc(16);
     for (let i = 0; i < 16; i++) {
       iv[i] = ivSeed[i] ^ seqBuffer[i];
     }
-    
+
     return iv;
   }
 
@@ -115,7 +116,7 @@ export class CryptoService {
   ): string {
     const cert = {
       version: 3,
-      serialNumber: crypto.randomBytes(16).toString('hex'),
+      serialNumber: crypto.randomBytes(16).toString("hex"),
       subject,
       issuer: subject, // self-signed
       publicKey,
@@ -129,19 +130,19 @@ export class CryptoService {
 
   // sign data with private key
   signData(data: Buffer, privateKey: string): string {
-    const sign = crypto.createSign('SHA256');
+    const sign = crypto.createSign("SHA256");
     sign.update(data);
     sign.end();
-    return sign.sign(privateKey, 'base64');
+    return sign.sign(privateKey, "base64");
   }
 
   // verify signature with public key
   verifySignature(data: Buffer, signature: string, publicKey: string): boolean {
     try {
-      const verify = crypto.createVerify('SHA256');
+      const verify = crypto.createVerify("SHA256");
       verify.update(data);
       verify.end();
-      return verify.verify(publicKey, signature, 'base64');
+      return verify.verify(publicKey, signature, "base64");
     } catch (error) {
       return false;
     }
@@ -171,7 +172,11 @@ export class CryptoService {
       if (!caCert) return false;
 
       const dataToVerify = Buffer.from(cert.publicKey + cert.subject);
-      return this.verifySignature(dataToVerify, cert.signature, caCert.publicKey);
+      return this.verifySignature(
+        dataToVerify,
+        cert.signature,
+        caCert.publicKey
+      );
     }
 
     // for self-signed, verify with own public key

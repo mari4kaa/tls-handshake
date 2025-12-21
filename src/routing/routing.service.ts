@@ -1,17 +1,17 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
-import { TopologyService } from './topology.service';
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
+import { TopologyService } from "./topology.service";
 
 @Injectable()
 export class RoutingService {
-  private readonly logger = new Logger('RoutingService');
+  private readonly logger = new Logger("RoutingService");
   private visitedNodes: Set<string> = new Set();
 
   constructor(
-    @Inject('NODE_ID') private readonly nodeId: string,
-    private readonly topologyService:  TopologyService,
-    private readonly httpService: HttpService,
+    @Inject("NODE_ID") private readonly nodeId: string,
+    private readonly topologyService: TopologyService,
+    private readonly httpService: HttpService
   ) {}
 
   async broadcast(message: string) {
@@ -21,7 +21,7 @@ export class RoutingService {
     const visited = [this.nodeId];
     await this.broadcastRecursive(message, visited);
 
-    this.logger.log('  ✓ Broadcast complete');
+    this.logger.log("  ✓ Broadcast complete");
   }
 
   private async broadcastRecursive(message: string, visited: string[]) {
@@ -36,14 +36,16 @@ export class RoutingService {
         try {
           const url = this.topologyService.getNodeUrl(neighbor);
           await firstValueFrom(
-            this. httpService.post(`${url}/network/receive-broadcast`, {
+            this.httpService.post(`${url}/network/receive-broadcast`, {
               message,
               visited,
               fromNodeId: this.nodeId,
             })
           );
         } catch (error) {
-          this.logger.error(`  ✗ Failed to forward to ${neighbor}:  ${error.message}`);
+          this.logger.error(
+            `  ✗ Failed to forward to ${neighbor}:  ${error.message}`
+          );
         }
       }
     }
@@ -52,17 +54,19 @@ export class RoutingService {
   async receiveBroadcast(message: string, visited: string[]) {
     this.logger.log(`\n=== RECEIVED BROADCAST at ${this.nodeId} ===`);
     this.logger.log(`  Message: "${message}"`);
-    this.logger.log(`  Path: ${visited.join(' -> ')}`);
+    this.logger.log(`  Path: ${visited.join(" -> ")}`);
 
     // Continue forwarding to neighbors not in visited list
     await this.broadcastRecursive(message, visited);
   }
 
-  async routeMessage(toNodeId: string, message: string, path?:  string[]) {
-    this.logger.log(`\n=== ROUTING MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`);
+  async routeMessage(toNodeId: string, message: string, path?: string[]) {
+    this.logger.log(
+      `\n=== ROUTING MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`
+    );
 
     if (toNodeId === this.nodeId) {
-      this.logger.log('  Message reached destination');
+      this.logger.log("  Message reached destination");
       return;
     }
 
@@ -70,8 +74,8 @@ export class RoutingService {
     const neighbors = this.topologyService.getNeighbors(this.nodeId);
 
     if (neighbors.includes(toNodeId)) {
-      this.logger. log(`  Direct route to ${toNodeId}`);
-      const url = this.topologyService. getNodeUrl(toNodeId);
+      this.logger.log(`  Direct route to ${toNodeId}`);
+      const url = this.topologyService.getNodeUrl(toNodeId);
       await firstValueFrom(
         this.httpService.post(`${url}/network/receive-routed`, {
           message,
@@ -84,12 +88,12 @@ export class RoutingService {
       const nextHop = neighbors[0];
       if (nextHop) {
         this.logger.log(`  Forwarding via ${nextHop}`);
-        const url = this.topologyService. getNodeUrl(nextHop);
+        const url = this.topologyService.getNodeUrl(nextHop);
         await firstValueFrom(
           this.httpService.post(`${url}/network/route`, {
             message,
             toNodeId,
-            path:  [... (path || []), this.nodeId],
+            path: [...(path || []), this.nodeId],
           })
         );
       }

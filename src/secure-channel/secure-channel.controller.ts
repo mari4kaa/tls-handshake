@@ -1,14 +1,12 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
-import { SecureChannelService, Message } from './secure-channel.service';
+import { Controller, Post, Get, Body, Param } from "@nestjs/common";
+import { SecureChannelService, Message } from "./secure-channel.service";
 
-@Controller('secure')
+@Controller("secure")
 export class SecureChannelController {
   constructor(private readonly secureChannelService: SecureChannelService) {}
 
-  @Post('send')
-  async sendSecureMessage(
-    @Body() body: { toNodeId: string; message: string }
-  ) {
+  @Post("send")
+  async sendSecureMessage(@Body() body: { toNodeId: string; message: string }) {
     try {
       const result = await this.secureChannelService.sendSecureMessage(
         body.toNodeId,
@@ -28,8 +26,8 @@ export class SecureChannelController {
     }
   }
 
-  @Get('messages/:fromNode')
-  getMessages(@Param('fromNode') fromNode: string) {
+  @Get("messages/:fromNode")
+  getMessages(@Param("fromNode") fromNode: string) {
     const messages = this.secureChannelService.getMessages(fromNode);
 
     return {
@@ -39,9 +37,9 @@ export class SecureChannelController {
     };
   }
 
-  @Post('messages/:fromNode/clear')
-  clearMessages(@Param('fromNode') fromNode: string) {
-    this.secureChannelService. clearMessages(fromNode);
+  @Post("messages/:fromNode/clear")
+  clearMessages(@Param("fromNode") fromNode: string) {
+    this.secureChannelService.clearMessages(fromNode);
 
     return {
       success: true,
@@ -49,14 +47,14 @@ export class SecureChannelController {
     };
   }
 
-  @Post('receive-packet')
+  @Post("receive-packet")
   async receivePacket(@Body() packet: any) {
     try {
-      const result = await this. secureChannelService.receivePacket(packet);
-      
+      const result = await this.secureChannelService.receivePacket(packet);
+
       return {
         success: true,
-        ... result,
+        ...result,
       };
     } catch (error) {
       return {

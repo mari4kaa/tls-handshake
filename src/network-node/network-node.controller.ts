@@ -1,26 +1,26 @@
-import { Controller, Get, Post, Body, Inject } from '@nestjs/common';
-import { CaClientService } from './ca-client.service';
+import { Controller, Get, Post, Body, Inject } from "@nestjs/common";
+import { CaClientService } from "./ca-client.service";
 
 @Controller()
 export class NetworkNodeController {
   constructor(
-    @Inject('NODE_ID') private readonly nodeId: string,
-    private readonly caClient: CaClientService,
+    @Inject("NODE_ID") private readonly nodeId: string,
+    private readonly caClient: CaClientService
   ) {}
 
-  @Get('info')
+  @Get("info")
   getInfo() {
     return {
       nodeId: this.nodeId,
       certificateObtained: !!this.caClient.getMyCertificate(),
       certificate: this.caClient.getMyCertificate(),
       hasCAPublicKey: !!this.caClient.getCAPublicKey(),
-      status: 'operational',
+      status: "operational",
       timestamp: new Date().toISOString(),
     };
   }
 
-  @Get('certificate')
+  @Get("certificate")
   getMyCertificate() {
     return {
       certificate: this.caClient.getMyCertificate(),
@@ -28,10 +28,10 @@ export class NetworkNodeController {
     };
   }
 
-  @Post('verify-certificate')
+  @Post("verify-certificate")
   async verifyCertificate(@Body() certificate: any) {
     const isValid = await this.caClient.verifyCertificate(certificate);
-    
+
     return {
       valid: isValid,
       verifiedAt: new Date().toISOString(),
