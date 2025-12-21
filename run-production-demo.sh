@@ -358,12 +358,11 @@ echo ""
 
 TEST_FILE_CONTENT="This is a test file for secure transfer.  It contains encrypted content that will be sent from node2 to node3. File integrity is guaranteed by AES-256-GCM authentication tags."
 
-echo "Creating test file (234 bytes)..."
+echo "Creating test file..."
 echo ""
 
 echo "Transferring file from node2 to node3..."
 echo "  • Encryption: AES-256-GCM"
-echo "  • File size: 234 bytes"
 echo ""
 
 # Send file as message
@@ -387,20 +386,12 @@ else
   echo "  ✗ File transfer failed"
 fi
 
-# Packet Fragmentation
 echo "═══════════════════════════════════════════════════════════"
 echo "  Packet Fragmentation (MTU Limits)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
-echo "Network topology MTU limits:"
-echo "  node1 ↔ node2: 256 bytes"
-echo "  node2 ↔ node3: 256 bytes"
-echo "  node3 ↔ node4: 128 bytes (slow radio link)"
-echo "  node4 ↔ node5: 256 bytes"
-echo ""
-
-# Create large message (1000 bytes)
+# Large message (1000 bytes)
 LARGE_MESSAGE=$(python3 -c "print('A' * 1000)" 2>/dev/null)
 if [ -z "$LARGE_MESSAGE" ]; then
   LARGE_MESSAGE=""
@@ -422,14 +413,11 @@ result=$(curl -s -X POST http://localhost:3000/secure/send \
 if echo "$result" | grep -q '"success":true'; then
   seq_num=$(echo "$result" | grep -o '"sequenceNumber":[0-9]*' | grep -o '[0-9]*')
   fragments=$(echo "$result" | grep -o '"fragments":[0-9]*' | grep -o '[0-9]*')
-  total_bytes=$(echo "$result" | grep -o '"totalBytes":[0-9]*' | grep -o '[0-9]*')
   
   echo "  ✓ Message fragmented and sent"
   echo "    • Original message: ${#LARGE_MESSAGE} bytes"
-  echo "    • Encrypted payload: ${total_bytes} bytes"
   echo "    • MTU limit: 256 bytes"
   echo "    • Fragments created: ${fragments}"
-  echo "    • Sequence number: ${seq_num}"
   
   sleep 2
   
@@ -438,7 +426,6 @@ if echo "$result" | grep -q '"success":true'; then
   
   if [ !  -z "$msg_count" ] && [ "$msg_count" -gt 0 ]; then
     echo "  ✓ All fragments reassembled and message decrypted at node2"
-    echo "    • Received ${msg_count} total message(s) from node1"
   fi
 else
   echo "  ✗ Fragmentation failed"
@@ -447,7 +434,6 @@ fi
 
 echo ""
 
-# Network Broadcast
 echo "═══════════════════════════════════════════════════════════"
 echo "  Network Broadcast with Routing"
 echo "═══════════════════════════════════════════════════════════"
@@ -466,7 +452,6 @@ if echo "$result" | grep -q "success"; then
   echo "    • node2 → node3 (forwarded)"
   echo "    • node3 → node4 (forwarded)"
   echo "    • node4 → node5 (forwarded)"
-  echo "  ✓ Spanning tree algorithm prevented loops"
   echo "  ✓ All reachable nodes received broadcast"
 else
   echo "  ✗ Broadcast failed"

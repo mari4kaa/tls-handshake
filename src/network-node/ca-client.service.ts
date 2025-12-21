@@ -57,7 +57,7 @@ export class CaClientService {
     );
     this.logger.log(`  Node: ${this.nodeId}`);
     this.logger.log(`  Role: CLIENT (verification only)`);
-    this.logger.log(`  CA Authority:  ${this.config.authorityUrl}`);
+    this.logger.log(`  CA Authority: ${this.config.authorityUrl}`);
     this.logger.log("");
 
     await this.fetchCAPublicKey();
@@ -90,6 +90,11 @@ export class CaClientService {
         this.logger.log(`  Key length: ${this.caPublicKey.length} characters`);
         this.logger.log(`  Issuer: ${response.data.issuer}`);
         this.logger.log(`  Algorithm: ${response.data.algorithm}`);
+        this.logger.log("");
+
+        // LOG FULL CA PUBLIC KEY
+        this.logger.log("Full CA Public Key (PEM format):");
+        this.logger.log(this.caPublicKey);
         this.logger.log("");
 
         return;
@@ -129,8 +134,18 @@ export class CaClientService {
     });
 
     this.logger.log("✓ Key pair generated");
-    this.logger.log(`  Public Key: ${publicKey.length} characters`);
+    this.logger.log(`  Public Key:  ${publicKey.length} characters`);
     this.logger.log(`  Private Key: ${privateKey.length} characters (secured)`);
+    this.logger.log("");
+
+    // LOG FULL PUBLIC KEY
+    this.logger.log("Generated Public Key (PEM format):");
+    this.logger.log(publicKey);
+    this.logger.log("");
+
+    // LOG PRIVATE KEY
+    this.logger.log("Generated Private Key (PEM format) - CONFIDENTIAL:");
+    this.logger.log(privateKey);
     this.logger.log("");
 
     const csr: CertificateSigningRequest = {
@@ -143,10 +158,16 @@ export class CaClientService {
       },
     };
 
-    this.logger.log("Certificate Signing Request created: ");
+    this.logger.log("Certificate Signing Request created:");
     this.logger.log(`  Node ID: ${csr.nodeId}`);
     this.logger.log(`  Subject: ${csr.subject}`);
     this.logger.log(`  Public Key length: ${publicKey.length} characters`);
+    this.logger.log(`  Requested At: ${csr.requestedAt}`);
+    this.logger.log(`  Purpose: ${csr.metadata.purpose}`);
+    this.logger.log("");
+
+    this.logger.log("Full CSR object:");
+    this.logger.log(JSON.stringify(csr, null, 2));
     this.logger.log("");
 
     let attempts = 0;
@@ -180,6 +201,30 @@ export class CaClientService {
         this.logger.log(
           `  Signature length: ${this.myCertificate.signature.length} characters`
         );
+        this.logger.log("");
+
+        // LOG FULL CERTIFICATE
+        this.logger.log("FULL SIGNED CERTIFICATE:");
+        this.logger.log("Version:  " + this.myCertificate.version);
+        this.logger.log("Serial Number: " + this.myCertificate.serialNumber);
+        this.logger.log("Subject: " + this.myCertificate.subject);
+        this.logger.log("Issuer: " + this.myCertificate.issuer);
+        this.logger.log(
+          "Valid From: " + new Date(this.myCertificate.validFrom).toUTCString()
+        );
+        this.logger.log(
+          "Valid To: " + new Date(this.myCertificate.validTo).toUTCString()
+        );
+        this.logger.log("");
+        this.logger.log("Public Key:");
+        this.logger.log(this.myCertificate.publicKey);
+        this.logger.log("");
+        this.logger.log("Digital Signature (Base64):");
+        this.logger.log(this.myCertificate.signature);
+        this.logger.log("");
+
+        this.logger.log("Complete Certificate Object (JSON):");
+        this.logger.log(JSON.stringify(this.myCertificate, null, 2));
         this.logger.log("");
 
         this.myPrivateKey = privateKey;
@@ -216,10 +261,21 @@ export class CaClientService {
     this.logger.log("=== VERIFYING CERTIFICATE ===");
     this.logger.log(`Serial:  ${certificate.serialNumber}`);
     this.logger.log(`Subject: ${certificate.subject}`);
+    this.logger.log(`Issuer: ${certificate.issuer}`);
+    this.logger.log("");
+
+    this.logger.log("Certificate to verify (full):");
+    this.logger.log(JSON.stringify(certificate, null, 2));
+    this.logger.log("");
 
     const now = new Date();
     const validFrom = new Date(certificate.validFrom);
     const validTo = new Date(certificate.validTo);
+
+    this.logger.log("Validity period check:");
+    this.logger.log(`  Current time: ${now.toUTCString()}`);
+    this.logger.log(`  Valid from: ${validFrom.toUTCString()}`);
+    this.logger.log(`  Valid to: ${validTo.toUTCString()}`);
 
     if (now < validFrom) {
       this.logger.warn("✗ Certificate not yet valid");
@@ -231,7 +287,26 @@ export class CaClientService {
       return false;
     }
 
+    this.logger.log("✓ Certificate is within valid time period");
+    this.logger.log("");
+
+    this.logger.log("Signature verification:");
     const dataToVerify = certificate.publicKey + certificate.subject;
+    this.logger.log(`  Data to verify (public key + subject):`);
+    this.logger.log(`    Length: ${dataToVerify.length} bytes`);
+    this.logger.log(
+      `    Data to verify: ${dataToVerify}`
+    );
+    this.logger.log("");
+
+    this.logger.log("  Using CA public key:");
+    this.logger.log(`    ${this.caPublicKey}`);
+    this.logger.log("");
+
+    this.logger.log("  Signature to verify (Base64):");
+    this.logger.log(`    ${certificate.signature}`);
+    this.logger.log("");
+
     const verify = createVerify("RSA-SHA256");
     verify.update(dataToVerify);
     verify.end();
@@ -243,7 +318,9 @@ export class CaClientService {
 
     if (isValid) {
       this.logger.log("✓ Certificate signature valid");
-      this.logger.log(`  Verified using CA public key`);
+      this.logger.log("  Verified using CA public key");
+      this.logger.log("  Algorithm: RSA-SHA256");
+      this.logger.log("  Certificate is authentic and issued by trusted CA");
     } else {
       this.logger.warn("✗ Certificate signature invalid");
     }

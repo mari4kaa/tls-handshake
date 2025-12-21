@@ -76,7 +76,7 @@ export class CaAuthorityService {
     );
     this.logger.log(`  Requester: ${csr.nodeId}`);
     this.logger.log(`  Subject: ${csr.subject}`);
-    this.logger.log(`  Public Key: ${csr.publicKey.substring(0, 50)}...`);
+    this.logger.log(`  Public Key: ${csr.publicKey}`);
     this.logger.log(`  Requested At: ${csr.requestedAt}`);
 
     // Валідація CSR

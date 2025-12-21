@@ -48,11 +48,13 @@ export class SecureChannelService {
       `\n=== SENDING SECURE MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`
     );
     this.logger.log(
-      `  Message:  "${message.substring(0, 50)}${
-        message.length > 50 ? "..." : ""
-      }"`
+      `  Message: "${message}"`
     );
-    this.logger.log(`  Length: ${message.length} bytes`);
+    this.logger.log(`  Message length: ${message.length} bytes`);
+    this.logger.log(
+      `  Message (hex): ${Buffer.from(message)
+        .toString("hex")}`
+    );
 
     let session = this.sessions.get(toNodeId);
 
@@ -82,8 +84,13 @@ export class SecureChannelService {
     session.keys.ivSeed.copy(iv);
     iv.writeUInt32BE(session.sequenceNumber, 12);
 
-    this.logger.log(`  Sequence Number: ${session.sequenceNumber}`);
-    this.logger.log(`  IV:  ${iv.toString("hex")}`);
+    this.logger.log(`\n  Encryption parameters:`);
+    this.logger.log(`    Sequence Number: ${session.sequenceNumber}`);
+    this.logger.log(
+      `    Encryption Key:  ${session.keys.encryptionKey.toString("hex")}`
+    );
+    this.logger.log(`    IV Seed: ${session.keys.ivSeed.toString("hex")}`);
+    this.logger.log(`    IV (with sequence): ${iv.toString("hex")}`);
 
     const cipher = createCipheriv(
       "aes-256-gcm",
@@ -96,11 +103,15 @@ export class SecureChannelService {
 
     const authTag = cipher.getAuthTag();
 
+    this.logger.log(`\n  Encryption result (AES-256-GCM):`);
+    this.logger.log(`    Ciphertext length: ${ciphertext.length} bytes`);
+    this.logger.log(`    Ciphertext (hex): ${ciphertext.toString("hex")}`);
     this.logger.log(
-      `  Ciphertext:  ${ciphertext.toString("hex").substring(0, 50)}...`
+      `    Ciphertext (base64): ${ciphertext.toString("base64")}`
     );
-    this.logger.log(`  Auth Tag: ${authTag.toString("hex")}`);
-    this.logger.log("  ✓ Message encrypted (AES-256-GCM)");
+    this.logger.log(`    Auth Tag (hex): ${authTag.toString("hex")}`);
+    this.logger.log(`    Auth Tag (base64): ${authTag.toString("base64")}`);
+    this.logger.log("  ✓ Message encrypted and authenticated");
 
     const encryptedMessage = {
       type: "secure-message",
@@ -215,7 +226,7 @@ export class SecureChannelService {
 
     if (!payload) {
       // Still waiting for more fragments
-      this.logger.log(`  ⏳ Waiting for more fragments...`);
+      this.logger.log(`  Waiting for more fragments...`);
       return {
         success: true,
         waiting: true,
@@ -237,6 +248,9 @@ export class SecureChannelService {
     this.logger.log(
       `\n=== DECRYPTING SECURE MESSAGE from ${packet.fromNodeId} ===`
     );
+
+    this.logger.log("Received encrypted packet:");
+    this.logger.log(JSON.stringify(packet, null, 2));
 
     const fromNodeId = packet.fromNodeId;
 
@@ -269,8 +283,15 @@ export class SecureChannelService {
     const iv = Buffer.from(packet.iv, "base64");
     const authTag = Buffer.from(packet.authTag, "base64");
 
-    this.logger.log(`  Sequence Number: ${packet.sequenceNumber}`);
-    this.logger.log(`  Ciphertext length: ${ciphertext.length} bytes`);
+    this.logger.log(`\n  Decryption parameters:`);
+    this.logger.log(`    Sequence Number: ${packet.sequenceNumber}`);
+    this.logger.log(
+      `    Encryption Key: ${session.keys.encryptionKey.toString("hex")}`
+    );
+    this.logger.log(`    IV: ${iv.toString("hex")}`);
+    this.logger.log(`    Ciphertext length: ${ciphertext.length} bytes`);
+    this.logger.log(`    Ciphertext (hex): ${ciphertext.toString("hex")}`);
+    this.logger.log(`    Auth Tag:  ${authTag.toString("hex")}`);
 
     try {
       const decipher = createDecipheriv(
@@ -285,13 +306,12 @@ export class SecureChannelService {
 
       const message = plaintext.toString("utf8");
 
-      this.logger.log(
-        `  Decrypted message: "${message.substring(0, 50)}${
-          message.length > 50 ? "..." : ""
-        }"`
-      );
-      this.logger.log(`  Message length: ${message.length} bytes`);
-      this.logger.log("  ✓ Message decrypted and verified");
+      this.logger.log(`\n  Decryption result:`);
+      this.logger.log(`    Plaintext length: ${message.length} bytes`);
+      this.logger.log(`    Plaintext (hex): ${plaintext.toString("hex")}`);
+      this.logger.log(`    Plaintext:  "${message}"`);
+      this.logger.log("  ✓ Message decrypted successfully");
+      this.logger.log("  ✓ Authentication tag verified");
 
       session.lastReceivedSeqNum = packet.sequenceNumber;
 
@@ -320,11 +340,6 @@ export class SecureChannelService {
       this.logger.error("  ✗ Decryption failed - authentication tag invalid");
       throw new Error("Message authentication failed");
     }
-  }
-
-  async receiveSecureMessage(packet: any) {
-    // Backward compatibility - treat as non-fragmented
-    return await this.processSecureMessage(packet);
   }
 
   private serializePacket(packet: NetworkPacket): any {

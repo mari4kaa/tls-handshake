@@ -70,7 +70,7 @@ export class RoutingService {
       return;
     }
 
-    // Simple routing:  check if direct neighbor
+    // Simple routing: check if direct neighbor
     const neighbors = this.topologyService.getNeighbors(this.nodeId);
 
     if (neighbors.includes(toNodeId)) {
@@ -84,7 +84,7 @@ export class RoutingService {
         })
       );
     } else {
-      // Forward to first neighbor (simple routing)
+      // Forward to first neighbor
       const nextHop = neighbors[0];
       if (nextHop) {
         this.logger.log(`  Forwarding via ${nextHop}`);

@@ -16,7 +16,6 @@ export class TopologyService {
       this.topology.set(node, neighbors as string[]);
     });
 
-    // Default URLs
     const defaultUrls = {
       node1: "http://localhost:3000",
       node2: "http://localhost:3001",

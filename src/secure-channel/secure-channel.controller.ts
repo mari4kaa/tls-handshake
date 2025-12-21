@@ -6,16 +6,18 @@ export class SecureChannelController {
   constructor(private readonly secureChannelService: SecureChannelService) {}
 
   @Post("send")
-  async sendSecureMessage(@Body() body: { toNodeId: string; message: string }) {
+  async sendSecureMessage(@Body() body: { toNodeId: string; message: string; mtu?: number  }) {
     try {
       const result = await this.secureChannelService.sendSecureMessage(
         body.toNodeId,
-        body.message
+        body.message,
+        { mtu: body.mtu }
       );
 
       return {
         success: true,
         sequenceNumber: result.sequenceNumber,
+        fragments: result.fragments,
         toNodeId: body.toNodeId,
       };
     } catch (error) {
