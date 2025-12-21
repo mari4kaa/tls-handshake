@@ -1,142 +1,102 @@
-import { Injectable } from '@nestjs/common';
-import { NetworkTopology, NetworkLink, RouteInfo } from '../types';
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
+import { TopologyService } from "./topology.service";
 
 @Injectable()
 export class RoutingService {
-  private topology: NetworkTopology = {
-    nodes: [],
-    links: [],
-  };
+  private readonly logger = new Logger("RoutingService");
+  private visitedNodes: Set<string> = new Set();
 
-  setTopology(topology: NetworkTopology): void {
-    this.topology = topology;
+  constructor(
+    @Inject("NODE_ID") private readonly nodeId: string,
+    private readonly topologyService: TopologyService,
+    private readonly httpService: HttpService
+  ) {}
+
+  async broadcast(message: string) {
+    this.logger.log(`\n=== BROADCASTING from ${this.nodeId} ===`);
+    this.logger.log(`  Message: "${message}"`);
+
+    const visited = [this.nodeId];
+    await this.broadcastRecursive(message, visited);
+
+    this.logger.log("  ✓ Broadcast complete");
   }
 
-  addNode(nodeId: string): void {
-    if (!this.topology.nodes.includes(nodeId)) {
-      this.topology.nodes.push(nodeId);
-    }
-  }
+  private async broadcastRecursive(message: string, visited: string[]) {
+    const neighbors = this.topologyService.getNeighbors(this.nodeId);
 
-  addLink(link: NetworkLink): void {
-    this.topology.links.push(link);
-  }
+    for (const neighbor of neighbors) {
+      if (!visited.includes(neighbor)) {
+        visited.push(neighbor);
 
-  getTopology(): NetworkTopology {
-    return this.topology;
-  }
+        this.logger.log(`  Forwarding to ${neighbor}...`);
 
-  findRoute(source: string, destination: string): RouteInfo | null {
-    if (source === destination) {
-      return { path: [source], hops: 0 };
-    }
-
-    const visited = new Set<string>();
-    const queue: { node: string; path: string[] }[] = [
-      { node: source, path: [source] },
-    ];
-
-    visited.add(source);
-
-    while (queue.length > 0) {
-      const { node, path } = queue.shift()!;
-
-      // Get neighbors
-      const neighbors = this.getNeighbors(node);
-
-      for (const neighbor of neighbors) {
-        if (neighbor === destination) {
-          const finalPath = [...path, neighbor];
-          return { path: finalPath, hops: finalPath.length - 1 };
-        }
-
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          queue.push({ node: neighbor, path: [...path, neighbor] });
+        try {
+          const url = this.topologyService.getNodeUrl(neighbor);
+          await firstValueFrom(
+            this.httpService.post(`${url}/network/receive-broadcast`, {
+              message,
+              visited,
+              fromNodeId: this.nodeId,
+            })
+          );
+        } catch (error) {
+          this.logger.error(
+            `  ✗ Failed to forward to ${neighbor}:  ${error.message}`
+          );
         }
       }
     }
-
-    return null; // No route found
   }
 
-  private getNeighbors(nodeId: string): string[] {
-    const neighbors: string[] = [];
+  async receiveBroadcast(message: string, visited: string[]) {
+    this.logger.log(`\n=== RECEIVED BROADCAST at ${this.nodeId} ===`);
+    this.logger.log(`  Message: "${message}"`);
+    this.logger.log(`  Path: ${visited.join(" -> ")}`);
 
-    for (const link of this.topology.links) {
-      if (link.from === nodeId) {
-        neighbors.push(link.to);
-      }
-      // If bidirectional, add reverse direction
-      if (link.to === nodeId) {
-        neighbors.push(link.from);
-      }
-    }
-
-    return neighbors;
+    // Continue forwarding to neighbors not in visited list
+    await this.broadcastRecursive(message, visited);
   }
 
-  getLink(from: string, to: string): NetworkLink | null {
-    return (
-      this.topology.links.find(
-        link =>
-          (link.from === from && link.to === to) ||
-          (link.from === to && link.to === from)
-      ) || null
+  async routeMessage(toNodeId: string, message: string, path?: string[]) {
+    this.logger.log(
+      `\n=== ROUTING MESSAGE:  ${this.nodeId} -> ${toNodeId} ===`
     );
-  }
 
-  getNextHop(currentNode: string, destination: string): string | null {
-    const route = this.findRoute(currentNode, destination);
-    if (!route || route.path.length < 2) {
-      return null;
+    if (toNodeId === this.nodeId) {
+      this.logger.log("  Message reached destination");
+      return;
     }
 
-    const currentIndex = route.path.indexOf(currentNode);
-    if (currentIndex === -1 || currentIndex === route.path.length - 1) {
-      return null;
-    }
+    // Simple routing: check if direct neighbor
+    const neighbors = this.topologyService.getNeighbors(this.nodeId);
 
-    return route.path[currentIndex + 1];
-  }
-
-  getAllNodes(): string[] {
-    return [...this.topology.nodes];
-  }
-
-  buildSpanningTree(source: string): Map<string, string[]> {
-    const tree = new Map<string, string[]>();
-    const visited = new Set<string>();
-    const queue: string[] = [source];
-
-    visited.add(source);
-    tree.set(source, []);
-
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const neighbors = this.getNeighbors(node);
-
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          queue.push(neighbor);
-
-          if (!tree.has(node)) {
-            tree.set(node, []);
-          }
-          tree.get(node)!.push(neighbor);
-        }
+    if (neighbors.includes(toNodeId)) {
+      this.logger.log(`  Direct route to ${toNodeId}`);
+      const url = this.topologyService.getNodeUrl(toNodeId);
+      await firstValueFrom(
+        this.httpService.post(`${url}/network/receive-routed`, {
+          message,
+          fromNodeId: this.nodeId,
+          toNodeId,
+        })
+      );
+    } else {
+      // Forward to first neighbor
+      const nextHop = neighbors[0];
+      if (nextHop) {
+        this.logger.log(`  Forwarding via ${nextHop}`);
+        const url = this.topologyService.getNodeUrl(nextHop);
+        await firstValueFrom(
+          this.httpService.post(`${url}/network/route`, {
+            message,
+            toNodeId,
+            path: [...(path || []), this.nodeId],
+          })
+        );
       }
     }
-
-    return tree;
-  }
-
-  getBroadcastTargets(
-    currentNode: string,
-    visitedNodes: string[]
-  ): string[] {
-    const neighbors = this.getNeighbors(currentNode);
-    return neighbors.filter(neighbor => !visitedNodes.includes(neighbor));
   }
 }
