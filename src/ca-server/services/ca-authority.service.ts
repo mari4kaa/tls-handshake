@@ -48,15 +48,12 @@ export class CaAuthorityService {
     this.logger.log("");
     this.logger.log("✓ Root CA Keys Generated");
     this.logger.log(`  Algorithm: RSA-2048`);
-    this.logger.log(`  Public Key: ${publicKey.length} characters`);
+    this.logger.log(`  Public Key: ${publicKey}`);
     this.logger.log(
-      `  Private Key: ${privateKey.length} characters (SECURED IN MEMORY)`
+      `  Private Key: ${privateKey}`
     );
     this.logger.log("");
     this.logger.log("✓ Root Certificate Authority Ready");
-    this.logger.log("  Can issue certificates to network nodes");
-    this.logger.log("  Can verify certificate signatures");
-    this.logger.log("  Can revoke compromised certificates");
     this.logger.log(
       "═══════════════════════════════════════════════════════════"
     );

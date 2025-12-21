@@ -109,7 +109,6 @@ echo ""
 echo "All nodes will request certificates from CA..."
 echo ""
 
-# Function to start a node
 start_node() {
   local node_id=$1
   local node_port=$2
@@ -124,7 +123,6 @@ start_node() {
   
   echo "  ✓ ${node_id} started on port ${node_port} (PID: ${pid})"
   
-  # Wait for node to initialize
   sleep 3
   
   # Check if certificate was obtained
@@ -141,7 +139,6 @@ start_node() {
   echo ""
 }
 
-# Start all nodes sequentially
 start_node "node1" 3000
 start_node "node2" 3001
 start_node "node3" 3002
@@ -175,7 +172,6 @@ echo ""
 echo "Configuring linear topology:  node1 ↔ node2 ↔ node3 ↔ node4 ↔ node5"
 echo ""
 
-# Configure topology on each node
 for port in 3000 3001 3002 3003 3004; do
   result=$(curl -s -X POST http://localhost:${port}/topology/configure \
     -H "Content-Type: application/json" \
@@ -238,7 +234,6 @@ echo ""
 echo "Initiating handshakes between adjacent nodes..."
 echo ""
 
-# Function to initiate handshake
 initiate_handshake() {
   local from_node=$1
   local from_port=$2
@@ -270,7 +265,6 @@ initiate_handshake "node4" 3003 "node5" "http://localhost:3004"
 
 echo ""
 
-# Check active sessions
 echo "Active TLS Sessions:"
 for port in 3000 3001 3002 3003 3004; do
   node_id=$(curl -s http://localhost:${port}/info 2>/dev/null | grep -o '"nodeId":"[^"]*"' | cut -d'"' -f4)
@@ -287,7 +281,6 @@ echo "  Secure Messaging (Encrypted Communication)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
-# Send secure messages
 echo "Sending encrypted messages between nodes..."
 echo ""
 

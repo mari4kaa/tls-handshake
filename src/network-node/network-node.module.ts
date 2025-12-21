@@ -12,7 +12,6 @@ import { NetworkController } from "./network.controller";
 import { SessionsController } from "./sessions.controller";
 
 // Service modules
-import { CryptoModule } from "../crypto/crypto.module";
 import { TransportModule } from "../transport/transport.module";
 import { RoutingModule } from "../routing/routing.module";
 import { SecureChannelModule } from "../secure-channel/secure-channel.module";
@@ -23,7 +22,6 @@ import { HandshakeModule } from "../handshake/handshake.module";
   imports: [
     ConfigModule.forRoot(),
     HttpModule,
-    CryptoModule,
     TransportModule,
     RoutingModule,
     SecureChannelModule,
